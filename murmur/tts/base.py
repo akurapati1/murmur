@@ -15,8 +15,12 @@ class TTSEngine(ABC):
     sample_rate = 24000
 
     @abstractmethod
-    def synthesize(self, text: str) -> np.ndarray:
-        """Return mono float32 samples in [-1, 1] at ``self.sample_rate``."""
+    def synthesize(self, text: str, *, speed: float = 1.0, intensity: float = 0.5) -> np.ndarray:
+        """Return mono float32 samples in [-1, 1] at ``self.sample_rate``.
+
+        ``speed`` is relative to the engine's base speed (1.0 = unchanged). ``intensity`` runs 0..1 and is
+        used by engines that can vary expressiveness; the others ignore it.
+        """
 
     def close(self) -> None:  # pragma: no cover - optional hook
         pass

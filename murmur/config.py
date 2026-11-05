@@ -32,6 +32,26 @@ class Settings:
     kokoro_model: str = "kokoro-v1.0.onnx"
     kokoro_voices: str = "voices-v1.0.bin"
     piper_voice: str = "en_US-lessac-medium"
+    # --- AI narration director (all optional) ---
+    ai: str = "auto"  # auto | anthropic | openai | off
+    ai_model: str = ""  # default: claude-opus-5-5 for Claude, first installed model for Ollama
+    ai_base_url: str = ""  # any OpenAI-compatible server, e.g. http://localhost:1234/v1
+    ai_api_key: str = ""
+    ai_effort: str = "low"  # Claude effort for annotation calls ("" to omit)
+    ai_concurrency: int = 4  # annotation windows in flight at once
+    ai_window_chars: int = 4500  # text sent per annotation call
+    pause_style: str = "natural"  # snappy | natural | relaxed
+    start_at_story: bool = True  # cut copyright pages, dedications, acknowledgments, author bios...
+    # --- voice cloning ---
+    clone_engine: str = "auto"  # auto | chatterbox | xtts
+
+    @property
+    def voices_dir(self) -> Path:
+        return self.data_dir / "voices"
+
+    @property
+    def prefs_path(self) -> Path:
+        return self.data_dir / "prefs.json"
 
     @property
     def uploads_dir(self) -> Path:
@@ -46,7 +66,7 @@ class Settings:
         return self.data_dir / "murmur.db"
 
     def ensure_dirs(self) -> None:
-        for p in (self.data_dir, self.models_dir, self.uploads_dir, self.jobs_dir):
+        for p in (self.data_dir, self.models_dir, self.uploads_dir, self.jobs_dir, self.voices_dir):
             p.mkdir(parents=True, exist_ok=True)
 
 
@@ -69,4 +89,14 @@ def get_settings() -> Settings:
         kokoro_model=_env("KOKORO_MODEL", "kokoro-v1.0.onnx"),
         kokoro_voices=_env("KOKORO_VOICES", "voices-v1.0.bin"),
         piper_voice=_env("PIPER_VOICE", "en_US-lessac-medium"),
+        ai=_env("AI", "auto").lower(),
+        ai_model=_env("AI_MODEL", ""),
+        ai_base_url=_env("AI_BASE_URL", ""),
+        ai_api_key=_env("AI_API_KEY", ""),
+        ai_effort=_env("AI_EFFORT", "low"),
+        ai_concurrency=max(1, int(_env("AI_CONCURRENCY", "4"))),
+        ai_window_chars=max(1500, int(_env("AI_WINDOW_CHARS", "4500"))),
+        pause_style=_env("PAUSE_STYLE", "natural").lower(),
+        start_at_story=_env_bool("START_AT_STORY", True),
+        clone_engine=_env("CLONE_ENGINE", "auto").lower(),
     )

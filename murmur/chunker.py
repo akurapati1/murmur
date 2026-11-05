@@ -5,10 +5,6 @@ import re
 
 from .models import Chapter, Chunk
 
-SENTENCE_PAUSE = 0.15
-PARAGRAPH_PAUSE = 0.5
-HEADING_PAUSE = 0.9
-
 _ABBREVIATIONS = {
     "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "etc", "e.g", "i.e", "no",
     "fig", "inc", "ltd", "co", "mt", "gen", "col", "capt", "lt", "sgt", "rev", "hon",
@@ -17,6 +13,13 @@ _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _FOOTNOTE_RE = re.compile(r"\[\d{1,3}\]|\[\w{1,2}\]")
 _ZERO_WIDTH_RE = re.compile(r"[​-‏⁠﻿]")
 _BOUNDARY_RE = re.compile(r"[.!?]+[\"'”’)\]]*\s+")
+_SCENE_BREAK_RE = re.compile(r"^\s*(?:[*#•·~◆◇■□§♦✦❖✱⁂]\s*){3,}$|^\s*(?:[-–—_=]\s*){3,}$|^\s*(?:\*\s*){1,2}$")
+SCENE_BREAK = "* * *"
+
+
+def is_scene_break(text: str) -> bool:
+    """A line made only of ornaments such as ``* * *``, ``***`` or ``---``: a pause in the story."""
+    return len(text) <= 24 and _SCENE_BREAK_RE.match(text) is not None
 
 
 def normalize_for_speech(text: str) -> str:
@@ -94,14 +97,7 @@ def pack_paragraph(paragraph: str, max_chars: int) -> list[str]:
 
 
 def build_chunks(chapter: Chapter, max_chars: int = 350) -> list[Chunk]:
-    """Chapter title first, then each paragraph as one or more chunks with natural pauses."""
-    chunks: list[Chunk] = []
-    heading = normalize_for_speech(chapter.title)
-    if heading:
-        chunks.append(Chunk(heading.rstrip(".") + ".", HEADING_PAUSE))
-    for paragraph in chapter.paragraphs:
-        pieces = pack_paragraph(paragraph, max_chars)
-        for i, piece in enumerate(pieces):
-            last = i == len(pieces) - 1
-            chunks.append(Chunk(piece, PARAGRAPH_PAUSE if last else SENTENCE_PAUSE))
-    return chunks
+    """Chapter title first, then every sentence with natural pauses (see :mod:`murmur.prosody`)."""
+    from .prosody import build_chunks as _build
+
+    return _build(chapter, max_chars)

@@ -8,9 +8,10 @@
 
 1. **Checks the file is really a PDF.** It looks at the file's contents, not its extension, and tells you plainly if it's an EPUB, an image, a damaged file or a password-protected PDF.
 2. **Decides whether the book works as audio.** It samples pages across the book and measures how much of the meaning lives in figures (big images, dense diagrams, numbered captions) versus prose. A few graphs, tables or equations are fine. If the book looks technical, Murmur says so and lets you choose: *Convert anyway* or pick another file.
-3. **Reads the book properly.** Running headers, footers and page numbers are removed. Hyphenated words are rejoined. Figure captions, tables of contents and back matter (index, bibliography) are skipped. Chapters come from the PDF outline, or from headings when there is no outline.
-4. **Narrates it** with a free, open-source voice, one chapter at a time, saving progress as it goes.
-5. **Packages it** as an `.m4b` audiobook with chapter markers and cover art (also: a single MP3, or a zip with one MP3 per chapter).
+3. **Starts at the story.** Cover and title pages, copyright and ISBN blocks, dedications, epigraphs, praise, "also by" lists, acknowledgments and author bios are cut. Narration begins at the prologue, prelude or first chapter, and ends where the book does. See [the narration director](#the-narration-director).
+4. **Reads the book properly.** Running headers, footers and page numbers are removed. Hyphenated words are rejoined. Figure captions, tables of contents and back matter (index, bibliography) are skipped. Chapters come from the PDF outline, or from headings when there is no outline.
+5. **Narrates it like a person would**, sentence by sentence, with deliberate pauses and pacing, in a built-in voice or in **your own voice**. Progress is saved as it goes.
+6. **Packages it** as an `.m4b` audiobook with chapter markers and cover art (also: a single MP3, or a zip with one MP3 per chapter).
 
 Scanned books (pages that are photos of text) are read with OCR if [Tesseract](https://github.com/tesseract-ocr/tesseract) is installed.
 
@@ -62,6 +63,63 @@ Narration speed depends heavily on your CPU, so measure on your machine rather t
 
 If speed matters more than polish, use Piper. The progress bar shows a live time estimate once narration starts.
 
+## The narration director
+
+Plain text-to-speech reads everything at one pace with one length of pause. Murmur puts a *director* between the PDF and the voice. It works in two layers, and the second one is optional.
+
+**Rules, always on, fully offline** ([`matter.py`](murmur/matter.py), [`prosody.py`](murmur/prosody.py), [`speech.py`](murmur/speech.py)):
+
+- Finds where the story begins and ends and cuts the rest. It recognises front and back matter by chapter title and by paragraph content (copyright and ISBN text, publisher blocks, dedications, epigraphs, "About the author"). For fiction it also skips a foreword or preface by someone else; for non-fiction it keeps the author's introduction. It will never cut more than 40% of a book, and `murmur direct` shows exactly what it removed.
+- Pauses are chosen per sentence: full stop, question, exclamation, ellipsis, a speaker change in dialogue, the end of a paragraph, a scene break (`* * *`, kept from the PDF), a chapter heading. The voice's own leading and trailing silence is trimmed so the pauses are exactly the ones chosen.
+- Numbers, years, money, ordinals, Roman numerals in headings and abbreviations are spoken properly ("1995" becomes "nineteen ninety-five", "Mr." becomes "Mister"), and SHOUTED words are not spelled out.
+
+**AI, optional:** an AI reads the book the way a studio director would, and guides the rules.
+
+- It confirms where the story starts and ends (its answer is validated and ignored if implausible).
+- For every passage it can set pace (slow for grief, fast for action), the length of the pause afterwards (up to "dramatic" for a cliffhanger), intensity (a whisper versus a shout) and which text is not part of the book at all.
+- It supplies pronunciations for names and invented words ("Hermione" becomes "her-MY-oh-nee").
+
+Choose one:
+
+| Provider | Setup | Notes |
+|---|---|---|
+| **Claude** | `pip install -e ".[ai]"` and `export ANTHROPIC_API_KEY=...` | Uses the official `anthropic` SDK. Default model `claude-opus-5-5`; set `MURMUR_AI_MODEL=claude-haiku-5-5` for a much cheaper run. Annotation calls use low effort. **The book's text is sent to Anthropic.** |
+| **A local model** | Run [Ollama](https://ollama.com) (detected automatically) or set `MURMUR_AI_BASE_URL` and `MURMUR_AI_MODEL` for any OpenAI-compatible server | Free, and the text never leaves your computer. Quality depends on the model; 7B+ instruction models work. |
+| **None** | nothing | The rules above. |
+
+An AI is purely advisory: if it errors, times out or answers nonsense, that part of the book silently falls back to the rules and the job continues. Answers are cached per job, so resuming an interrupted book never pays twice. Turn it off per book with the checkbox in the UI or `--ai off`.
+
+**Check before you narrate.** This prints what would be cut, where the story starts, pronunciations, and the first passages with their pause lengths, without producing audio:
+
+```bash
+murmur direct my-book.pdf
+murmur direct my-book.pdf --script script.json    # every sentence with its pause, speed and energy
+murmur convert my-book.pdf --pause-style relaxed  # snappy | natural | relaxed
+murmur convert my-book.pdf --keep-opening         # read everything, credits included
+```
+
+## Your own voice
+
+Upload any recording of yourself (10 to 30 seconds of clear speech; MP3, WAV, M4A, OGG, FLAC and most video files work), give it a name, and narrate whole books in it.
+
+```bash
+pip install -e ".[clone]"          # Chatterbox, MIT licence. Also: murmur models clone
+murmur voices add "My voice" recording.m4a --default
+murmur convert my-book.pdf --voice "My voice"
+murmur voices list
+```
+
+In the web app, use **Your voices**: choose the file, name it, confirm it's your own voice (or that you have permission), and save. The voice appears in the voice menu, and **the voice you select is remembered and used by default** for the next audiobook. You can play the saved clip, switch voices, or delete one.
+
+How it works and what to expect:
+
+- The recording is decoded with ffmpeg, the cleanest stretch of speech (up to 28 s) is picked, long silences are squeezed out and the level is normalised. Murmur warns about background noise or distortion, and refuses clips with under 5 s of speech.
+- A cloning engine imitates that voice for every sentence. **Chatterbox** (MIT) is the default; **Coqui XTTS-v2** is also supported (`pip install -e ".[xtts]"`, `MURMUR_CLONE_ENGINE=xtts`, and note its licence is **non-commercial**). The director's per-sentence energy maps to Chatterbox's expressiveness.
+- **Cloning is heavy.** It pulls in PyTorch and about 2 GB of weights. Use a GPU (CUDA or Apple Silicon) if you can; on a plain CPU expect it to run several times slower than real time, so a novel can take days. Kokoro remains the fast option.
+- It will not be a perfect copy. Quality follows the recording: a quiet room and natural speech matter more than length.
+- Only clone your own voice, or one you have explicit permission to use. Murmur asks you to confirm this every time.
+- Voices are stored in `<data>/voices/` on your computer and are never uploaded.
+
 ## How it decides "novel or technical?"
 
 Murmur samples up to 40 pages evenly across the book and measures:
@@ -88,13 +146,14 @@ The thresholds are heuristics in [`murmur/classifier.py`](murmur/classifier.py).
                            ▼
                      JobManager (worker thread, resumes after restart)
                            │
-   validate ─▶ evaluate ─▶ extract ─▶ narrate ─────────▶ encode
-   (PyMuPDF)   (classifier) (chapters,   (Kokoro/Piper/    (ffmpeg:
-                             cleaning)    eSpeak, per-chunk  m4b/mp3/zip,
-                                          checkpoints)       chapters, cover)
+   validate ─▶ evaluate ─▶ extract ─▶ direct ─────▶ narrate ─────────▶ encode
+   (PyMuPDF)   (classifier) (chapters,  (where the     (Kokoro/Piper/     (ffmpeg:
+                             cleaning)   story starts,  eSpeak/your clone, m4b/mp3/zip,
+                                         pauses, pace;  per-sentence,      chapters, cover)
+                                         rules + AI)    checkpoints)
 ```
 
-- **Resumable.** Audio is written chunk by chunk with a checkpoint, so a crash or restart loses at most one passage.
+- **Resumable.** The directed script is saved (`plan.json`) before narration starts, and audio is written sentence by sentence with a checkpoint, so a crash or restart loses at most one sentence and never repeats AI calls.
 - **Large files.** Uploads stream to disk in 1 MB pieces (default limit 500 MB, set `MURMUR_MAX_UPLOAD_MB`). Pages are read one at a time and audio is concatenated on disk, so memory use stays flat however long the book is.
 - **Scaling out.** `JobManager` is a small in-process queue. To run many books in parallel across machines, replace it with Celery or RQ and point every worker at the same job store; the pipeline function `process_job(job_id, store, settings, cancel)` is already independent of the web layer.
 
@@ -113,20 +172,33 @@ All settings are environment variables prefixed with `MURMUR_`.
 | `MURMUR_SKIP_BACK_MATTER` | `1` | Skip index, bibliography, notes |
 | `MURMUR_SKIP_CAPTIONS` | `1` | Skip "Figure N." captions |
 | `MURMUR_KEEP_WORK` | `0` | Keep scratch files after a book finishes |
+| `MURMUR_AI` | `auto` | `auto`, `anthropic`, `openai` (any OpenAI-compatible server, incl. Ollama), `off` |
+| `MURMUR_AI_MODEL` | `claude-opus-5-5` / first Ollama model | Model used by the director |
+| `MURMUR_AI_BASE_URL`, `MURMUR_AI_API_KEY` | | OpenAI-compatible endpoint, e.g. `http://localhost:1234/v1` |
+| `MURMUR_AI_EFFORT` | `low` | Claude effort for annotation calls (`""` to omit, for older models) |
+| `MURMUR_AI_CONCURRENCY` | `4` | Annotation calls in flight at once |
+| `MURMUR_PAUSE_STYLE` | `natural` | `snappy`, `natural`, `relaxed` |
+| `MURMUR_START_AT_STORY` | `1` | Cut front and back matter |
+| `MURMUR_CLONE_ENGINE` | `auto` | `auto`, `chatterbox`, `xtts` |
 
 ## HTTP API
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/jobs` | Upload a PDF (`file`, optional `voice`, `speed`, `format`). Returns `415` immediately if it isn't a PDF |
+| `POST` | `/api/jobs` | Upload a PDF (`file`, optional `voice`, `speed`, `format`, `ai`=`auto\|off`, `start_at_story`, `pause_style`). Returns `415` immediately if it isn't a PDF |
 | `GET` | `/api/jobs`, `/api/jobs/{id}` | List jobs, read one |
 | `GET` | `/api/jobs/{id}/events` | Live progress (server-sent events) |
 | `POST` | `/api/jobs/{id}/confirm` | Convert a book that was flagged as technical |
 | `POST` | `/api/jobs/{id}/cancel` | Cancel or discard |
 | `GET` | `/api/jobs/{id}/download` | The audiobook (supports seeking; add `?attachment=true` to download) |
 | `DELETE` | `/api/jobs/{id}` | Delete the job and its files |
-| `POST` | `/api/preview` | Short voice sample |
-| `GET` | `/api/health`, `/api/voices` | Setup status, voice list |
+| `POST` | `/api/preview` | Short voice sample (works for your voices too) |
+| `GET` | `/api/health`, `/api/ai` | Setup status, which AI director is active |
+| `GET` | `/api/voices` | Built-in voices, your voices (`custom`), the default, cloning engine status |
+| `POST` | `/api/voices` | Save a voice: multipart `name`, `file`, `consent=true` |
+| `PATCH` / `DELETE` | `/api/voices/{id}` | Rename or delete a voice |
+| `PUT` | `/api/voices/default` | `{"voice": "<id>"}` or `null`: the voice used when none is chosen |
+| `GET` | `/api/voices/{id}/sample` | The cleaned reference clip |
 
 Interactive docs are at `/docs` while the server is running.
 
@@ -136,6 +208,9 @@ Interactive docs are at `/docs` while the server is running.
 - **Equations and code** are read as plain text, which sounds odd. That's why heavy ones trigger the technical-book check.
 - **English only** for now. Kokoro and Piper both support other languages; wiring in language detection is a natural next step.
 - **Encrypted PDFs** must be unlocked first.
+- **Not yet run against real models:** the Claude and Ollama directors (tested with scripted fakes and the logic is validated, but not against a live model), and the Chatterbox and XTTS cloning engines (the voice library, routing and audio preparation are tested; the model calls are thin and untested here). Please report anything odd.
+- Front-matter detection is heuristic. A book with unusual structure may keep a stray page or lose a short real one. Run `murmur direct` first on anything important, and use `--keep-opening` if it cuts too much.
+- Pronunciation fixes and per-sentence pacing are advisory: the built-in voices ignore some of them, and Chatterbox does not support a direct speed control.
 - Only the Kokoro and dummy (test) engines were run against real models during development. The Piper and eSpeak paths are covered by logic but not yet exercised against the real binaries, so report anything odd.
 - Only upload books you have the right to convert. Audiobooks you make are for your own use.
 

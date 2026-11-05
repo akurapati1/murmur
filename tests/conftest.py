@@ -9,7 +9,7 @@ from tests import pdfs
 
 @pytest.fixture
 def settings(tmp_path):
-    s = Settings(data_dir=tmp_path / "data", models_dir=tmp_path / "models", tts_engine="dummy", chunk_chars=300)
+    s = Settings(data_dir=tmp_path / "data", models_dir=tmp_path / "models", tts_engine="dummy", chunk_chars=300, ai="off")
     s.ensure_dirs()
     return s
 

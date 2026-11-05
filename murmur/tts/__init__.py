@@ -6,13 +6,16 @@ from functools import lru_cache
 from typing import Any
 
 from ..config import Settings
+from ..voices import VoiceLibrary, get_default_voice, is_clone_id
 from .base import EngineUnavailable, TTSEngine
+from .clone_engine import CloneEngine, clone_engines_status
 from .dummy_engine import DummyEngine
 from .espeak_engine import EspeakEngine, espeak_binary
 from .kokoro_engine import KokoroEngine
 from .piper_engine import PiperEngine, piper_command
 
-__all__ = ["EngineUnavailable", "TTSEngine", "create_engine", "available_engines", "voice_catalog", "cached_engine"]
+__all__ = ["EngineUnavailable", "TTSEngine", "create_engine", "available_engines", "voice_catalog", "cached_engine",
+           "clone_engines_status"]
 
 # (id, label, group)
 KOKORO_VOICES = [
@@ -97,19 +100,34 @@ def voice_catalog(settings: Settings, engine: str | None = None) -> dict[str, An
     voices = {
         "kokoro": KOKORO_VOICES, "piper": PIPER_VOICES, "espeak": ESPEAK_VOICES, "dummy": DUMMY_VOICES,
     }[name]
-    default = settings.voice if any(v[0] == settings.voice for v in voices) else voices[0][0]
+    custom = [v.to_dict() for v in VoiceLibrary(settings).list()]
+    default = get_default_voice(settings)
+    if not default or (is_clone_id(default) is False and not any(v[0] == default for v in voices)):
+        default = settings.voice if any(v[0] == settings.voice for v in voices) else voices[0][0]
     return {
         "engine": name,
         "default": default,
         "voices": [{"id": i, "label": label, "group": group} for i, label, group in voices],
+        "custom": custom,
+        "clone_engines": clone_engines_status(),
     }
+
+
+def _wants_dummy(settings: Settings, engine: str | None) -> bool:
+    return (engine or settings.tts_engine or "").lower() == "dummy"
 
 
 def create_engine(settings: Settings, *, engine: str | None = None, voice: str | None = None,
                   speed: float | None = None) -> TTSEngine:
-    name = resolve_engine_name(settings, engine)
     speed = speed or settings.speed
     voice = voice or settings.voice
+    if is_clone_id(voice) and not _wants_dummy(settings, engine):
+        library = VoiceLibrary(settings)
+        record = library.get(voice)
+        if record is None:
+            raise EngineUnavailable("The voice you picked has been deleted. Choose another voice.")
+        return CloneEngine(library.reference_path(record.id), settings.clone_engine, speed=speed)
+    name = resolve_engine_name(settings, engine)
     if name == "dummy":
         return DummyEngine(speed=speed)
     if name == "kokoro":
@@ -130,4 +148,6 @@ def _cached(settings: Settings, engine: str, voice: str, speed: float) -> TTSEng
 
 def cached_engine(settings: Settings, *, engine: str | None, voice: str, speed: float) -> TTSEngine:
     """Reuse loaded models for short requests such as voice previews."""
+    if is_clone_id(voice) and not _wants_dummy(settings, engine):
+        return _cached(settings, "clone", voice, round(speed, 2))
     return _cached(settings, resolve_engine_name(settings, engine), voice, round(speed, 2))

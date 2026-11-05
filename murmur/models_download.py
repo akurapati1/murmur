@@ -57,3 +57,17 @@ def download_piper(settings: Settings, voice: str | None = None) -> None:
     print("Piper:")
     _download(url, base / f"{voice}.onnx", voice)
     _download(url + ".json", base / f"{voice}.onnx.json", f"{voice} config")
+
+
+def download_clone(settings: Settings) -> None:
+    """Fetch the voice-cloning model weights (about 2 GB) by loading the engine once."""
+    from .tts.base import EngineUnavailable
+    from .tts.clone_engine import _chatterbox_model, _xtts_model, pick_clone_engine
+
+    try:
+        kind = pick_clone_engine(settings.clone_engine)
+    except EngineUnavailable as exc:
+        raise SystemExit(str(exc))
+    print(f"Downloading the {kind} voice-cloning model (one time, about 2 GB)...")
+    (_chatterbox_model if kind == "chatterbox" else _xtts_model)()
+    print("Done.")

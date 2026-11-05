@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-_JSON_FIELDS = {"options", "report", "chapters"}
+_JSON_FIELDS = {"options", "report", "chapters", "direction"}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     options TEXT NOT NULL DEFAULT '{}',
     report TEXT,
     chapters TEXT,
+    direction TEXT,
     title TEXT,
     author TEXT,
     output_path TEXT,
@@ -45,6 +46,9 @@ class JobStore:
         with self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_SCHEMA)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if "direction" not in columns:  # databases created before the AI director existed
+                conn.execute("ALTER TABLE jobs ADD COLUMN direction TEXT")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30)

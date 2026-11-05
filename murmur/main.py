@@ -19,21 +19,32 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import __version__
-from .audio import ffmpeg_available, float_to_pcm
+from .ai import ai_status
+from .audio import ffmpeg_available, float_to_pcm, trim_silence
 from .config import Settings, get_settings
 from .jobs import JobManager
 from .models import ACTIVE_STATUSES, TERMINAL_STATUSES, JobStatus
 from .store import JobStore
-from .tts import EngineUnavailable, available_engines, cached_engine, resolve_engine_name, voice_catalog
+from .tts import (
+    EngineUnavailable,
+    available_engines,
+    cached_engine,
+    clone_engines_status,
+    resolve_engine_name,
+    voice_catalog,
+)
 from .validation import describe_non_pdf, sniff_pdf
+from .voices import VoiceError, VoiceLibrary, effective_voice, is_clone_id, set_default_voice
 
 STATIC_DIR = Path(__file__).parent / "static"
 JOB_ID_RE = re.compile(r"^[a-f0-9]{12}$")
 FORMATS = {"m4b", "mp3", "zip"}
 MEDIA_TYPES = {"m4b": "audio/mp4", "mp3": "audio/mpeg", "zip": "application/zip"}
+PAUSE_STYLES = {"snappy", "natural", "relaxed"}
+MAX_VOICE_UPLOAD_MB = 200
 PUBLIC_FIELDS = (
     "id", "filename", "size_bytes", "status", "stage", "progress", "message", "error", "options",
-    "report", "chapters", "title", "author", "output_format", "duration_sec", "eta_sec",
+    "report", "direction", "chapters", "title", "author", "output_format", "duration_sec", "eta_sec",
     "created_at", "updated_at",
 )
 PREVIEW_TEXT = "Hello, I'm your narrator. This is how your audiobook will sound."
@@ -43,6 +54,14 @@ class PreviewRequest(BaseModel):
     voice: str | None = None
     speed: float = 1.0
     engine: str | None = None
+
+
+class DefaultVoiceRequest(BaseModel):
+    voice: str | None = None
+
+
+class RenameVoiceRequest(BaseModel):
+    name: str
 
 
 def public_job(job: dict[str, Any]) -> dict[str, Any]:
@@ -88,22 +107,86 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "active_engine": active,
             "status": "ok", "version": __version__, "ffmpeg": ffmpeg_available(),
             "engines": available_engines(settings), "max_upload_mb": settings.max_upload_mb,
+            "ai": ai_status(settings).to_dict(), "clone_engines": clone_engines_status(),
         }
 
+    @app.get("/api/ai")
+    def ai() -> dict[str, Any]:
+        return ai_status(settings).to_dict()
+
+    # ---- voices -------------------------------------------------------------------------------
     @app.get("/api/voices")
     def voices(engine: str | None = None) -> dict[str, Any]:
         return voice_catalog(settings, engine)
 
+    @app.post("/api/voices", status_code=201)
+    async def add_voice(
+        name: str = Form(...),
+        consent: bool = Form(False),
+        file: UploadFile = File(...),
+    ) -> dict[str, Any]:
+        """Upload a recording (any audio or video file), name it, and keep it as a narrator voice."""
+        tmp = settings.uploads_dir / f"voice-{uuid.uuid4().hex[:12]}{Path(file.filename or 'x').suffix[:8]}"
+        limit, size = MAX_VOICE_UPLOAD_MB * 1024 * 1024, 0
+        try:
+            with open(tmp, "wb") as out:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > limit:
+                        raise error(413, "too_large", f"That recording is larger than {MAX_VOICE_UPLOAD_MB} MB.")
+                    await run_in_threadpool(out.write, chunk)
+            if size == 0:
+                raise error(400, "empty", "The file is empty.")
+            voice = await run_in_threadpool(
+                lambda: VoiceLibrary(settings).add(name, tmp, source_name=Path(file.filename or "").name,
+                                                   consent=consent))
+        except VoiceError as exc:
+            raise error(400, "bad_voice", str(exc)) from exc
+        finally:
+            tmp.unlink(missing_ok=True)
+        return voice.to_dict()
+
+    @app.put("/api/voices/default")
+    def default_voice(req: DefaultVoiceRequest) -> dict[str, Any]:
+        if req.voice:
+            if not re.fullmatch(r"[\w\-]{1,40}", req.voice):
+                raise error(400, "bad_voice", "Unknown voice.")
+            if is_clone_id(req.voice) and VoiceLibrary(settings).get(req.voice) is None:
+                raise error(404, "not_found", "That voice doesn't exist.")
+        set_default_voice(settings, req.voice)
+        return {"default": req.voice}
+
+    @app.patch("/api/voices/{voice_id}")
+    def rename_voice(voice_id: str, req: RenameVoiceRequest) -> dict[str, Any]:
+        try:
+            return VoiceLibrary(settings).rename(voice_id, req.name).to_dict()
+        except VoiceError as exc:
+            raise error(400, "bad_voice", str(exc)) from exc
+
+    @app.delete("/api/voices/{voice_id}", status_code=204)
+    def delete_voice(voice_id: str) -> Response:
+        if not VoiceLibrary(settings).delete(voice_id):
+            raise error(404, "not_found", "That voice doesn't exist.")
+        return Response(status_code=204)
+
+    @app.get("/api/voices/{voice_id}/sample")
+    def voice_sample(voice_id: str) -> FileResponse:
+        """The cleaned reference clip, so you can hear what the copy is being made from."""
+        try:
+            return FileResponse(VoiceLibrary(settings).reference_path(voice_id), media_type="audio/wav")
+        except VoiceError as exc:
+            raise error(404, "not_found", str(exc)) from exc
+
     @app.post("/api/preview")
     async def preview(req: PreviewRequest) -> Response:
         speed = min(max(req.speed, 0.6), 1.5)
-        voice = req.voice or settings.voice
+        voice = effective_voice(settings, req.voice) or settings.voice
         if not re.fullmatch(r"[\w\-]{1,40}", voice):
             raise error(400, "bad_voice", "Unknown voice.")
 
         def render() -> bytes:
             engine = cached_engine(settings, engine=req.engine, voice=voice, speed=speed)
-            pcm = float_to_pcm(engine.synthesize(PREVIEW_TEXT))
+            pcm = float_to_pcm(trim_silence(engine.synthesize(PREVIEW_TEXT), int(engine.sample_rate)))
             buf = io.BytesIO()
             with wave.open(buf, "wb") as w:
                 w.setnchannels(1)
@@ -125,11 +208,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         speed: float = Form(1.0),
         format: str = Form("m4b"),
         engine: str | None = Form(None),
+        ai: str = Form("auto"),
+        start_at_story: bool = Form(True),
+        pause_style: str | None = Form(None),
     ) -> dict[str, Any]:
+        voice = voice or None
         if format not in FORMATS:
             raise error(400, "bad_format", f"Format must be one of: {', '.join(sorted(FORMATS))}.")
         if voice is not None and not re.fullmatch(r"[\w\-]{1,40}", voice):
             raise error(400, "bad_voice", "Unknown voice.")
+        if voice is not None and is_clone_id(voice) and VoiceLibrary(settings).get(voice) is None:
+            raise error(404, "voice_not_found", "That voice doesn't exist. Upload it again or choose another.")
+        if ai not in ("auto", "off"):
+            raise error(400, "bad_ai", "ai must be 'auto' or 'off'.")
+        if pause_style is not None and pause_style not in PAUSE_STYLES:
+            raise error(400, "bad_pause_style", f"pause_style must be one of: {', '.join(sorted(PAUSE_STYLES))}.")
         job_id = uuid.uuid4().hex[:12]
         dest = settings.uploads_dir / f"{job_id}.pdf"
         limit = settings.max_upload_mb * 1024 * 1024
@@ -151,8 +244,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise error(415, "not_pdf", message)
 
         options = {
-            "voice": voice, "speed": min(max(speed, 0.6), 1.5), "format": format,
-            "engine": engine, "force": False,
+            "voice": voice or None, "speed": min(max(speed, 0.6), 1.5), "format": format,
+            "engine": engine, "force": False, "ai": ai, "start_at_story": start_at_story,
+            "pause_style": pause_style or settings.pause_style,
         }
         job = store.create(job_id=job_id, filename=Path(file.filename or "book.pdf").name,
                            size_bytes=size, input_path=dest, options=options)
