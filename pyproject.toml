@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "murmur-audiobooks"
+version = "0.1.0"
+description = "Turn any book PDF into an audiobook. Free, open-source, runs on your laptop."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "python-multipart>=0.0.9",
+  "pymupdf>=1.24.3",
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+kokoro = ["kokoro-onnx>=0.4"]
+piper = ["piper-tts"]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5"]
+
+[project.scripts]
+murmur = "murmur.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["murmur*"]
+
+[tool.setuptools.package-data]
+murmur = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+ignore = ["UP037"]

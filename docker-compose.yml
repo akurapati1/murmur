@@ -1,0 +1,13 @@
+services:
+  murmur:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"   # local only; remove "127.0.0.1:" to share on your network
+    volumes:
+      - murmur-data:/data
+    environment:
+      MURMUR_WORKERS: "1"        # one book at a time keeps the CPU free for fast narration
+    restart: unless-stopped
+
+volumes:
+  murmur-data:

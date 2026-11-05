@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Murmur runtime data and downloaded models
+.murmur/
+data/
+models/
+*.m4b
+*.onnx
+*.bin
+
+.DS_Store
+.env

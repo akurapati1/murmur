@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Murmur</title>
+<meta name="description" content="Turn any book PDF into an audiobook. Free, and it runs on your own computer.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231B1938'/%3E%3Crect x='6' y='13' width='3' height='6' rx='1.5' fill='%23F0AE2B'/%3E%3Crect x='11' y='8' width='3' height='16' rx='1.5' fill='%23F0AE2B'/%3E%3Crect x='16' y='5' width='3' height='22' rx='1.5' fill='%23F0AE2B'/%3E%3Crect x='21' y='10' width='3' height='12' rx='1.5' fill='%23F0AE2B'/%3E%3Crect x='26' y='14' width='3' height='4' rx='1.5' fill='%23F0AE2B'/%3E%3C/svg%3E">
+<style>
+:root {
+  --paper: #ECEAF4;
+  --paper-2: #E0DDEE;
+  --ink: #1B1938;
+  --ink-2: #504D70;
+  --line: #C6C2DD;
+  --signal: #F0AE2B;
+  --accent: #4F35A0;
+  --on-accent: #FFFFFF;
+  --danger: #A3202F;
+  --focus: #F0AE2B;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #14122A;
+    --paper-2: #1E1B3E;
+    --ink: #EEEBFA;
+    --ink-2: #A9A5C8;
+    --line: #38345F;
+    --signal: #F6C04E;
+    --accent: #B9A6F6;
+    --on-accent: #14122A;
+    --danger: #FF8B98;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 16px/1.55 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 760px; margin: 0 auto; padding: 0 20px 96px; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+header.top { display: flex; align-items: center; justify-content: space-between; padding: 22px 0 8px; }
+.brand { display: flex; align-items: center; gap: 10px; font: 600 1.15rem var(--serif); letter-spacing: -0.01em; }
+.brand svg { width: 28px; height: 28px; }
+.top a { color: var(--ink-2); font-size: .95rem; text-decoration: none; }
+.top a:hover { color: var(--ink); text-decoration: underline; }
+
+h1 {
+  font: 600 clamp(2.5rem, 7.5vw, 4.4rem)/1.0 var(--serif); letter-spacing: -0.025em;
+  margin: 40px 0 14px; max-width: 12ch;
+}
+.lede { font-size: 1.1rem; color: var(--ink-2); max-width: 46ch; margin: 0 0 32px; }
+
+/* The drop zone: a row of "text" that turns into sound as the book is read. */
+.stage {
+  position: relative; display: block; width: 100%; text-align: left; cursor: pointer;
+  background: var(--paper-2); color: inherit; font: inherit;
+  border: 2px dashed var(--line); border-radius: 20px; padding: 28px 24px 24px;
+  transition: border-color .15s, background-color .15s;
+}
+.stage:hover, .stage.drag { border-color: var(--accent); border-style: solid; }
+.stage[aria-disabled="true"] { cursor: default; }
+.stage[aria-disabled="true"]:hover { border-color: var(--line); border-style: dashed; }
+#wave { display: block; width: 100%; height: 96px; }
+.stage-title { display: block; font: 600 1.35rem/1.25 var(--serif); margin: 18px 0 2px; overflow-wrap: anywhere; }
+.stage-sub { display: block; color: var(--ink-2); }
+
+.options { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 18px 24px; align-items: start; margin: 22px 0 0; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pick { display: flex; gap: 10px; align-items: center; }
+.pick select { flex: 1; min-width: 0; }
+.field label { font-size: .875rem; color: var(--ink-2); }
+select, input[type=range] { font: inherit; color: inherit; }
+select {
+  background: var(--paper); border: 1.5px solid var(--line); border-radius: 10px;
+  padding: 9px 12px; width: 100%;
+}
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 8px 0; }
+
+.btn {
+  font: 600 .95rem var(--sans); border-radius: 999px; padding: 10px 20px; cursor: pointer;
+  border: 1.5px solid var(--accent); background: var(--accent); color: var(--on-accent);
+  text-decoration: none; display: inline-block; line-height: 1.3;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.ghost { background: transparent; color: var(--accent); }
+.btn.small { padding: 8px 14px; font-size: .875rem; }
+
+.notice { margin: 20px 0 0; padding: 12px 16px; border-left: 4px solid var(--signal); background: var(--paper-2); border-radius: 4px 12px 12px 4px; }
+.notice.error { border-left-color: var(--danger); }
+.notice code { font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--paper); padding: 1px 6px; border-radius: 6px; }
+
+.panel { margin-top: 36px; padding-top: 28px; border-top: 1.5px solid var(--line); }
+.panel h2 { font: 600 1.6rem/1.2 var(--serif); letter-spacing: -0.01em; margin: 0 0 8px; }
+.panel p { margin: 0 0 12px; max-width: 60ch; }
+.muted { color: var(--ink-2); }
+
+.steps { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 0; margin: 0 0 16px; }
+.steps li { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: .95rem; }
+.steps li::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--line); }
+.steps li.done::before { background: var(--accent); border-color: var(--accent); }
+.steps li.current { color: var(--ink); font-weight: 600; }
+.steps li.current::before { border-color: var(--signal); background: var(--signal); }
+.bar { height: 8px; border-radius: 99px; background: var(--paper-2); overflow: hidden; margin: 6px 0 10px; }
+.bar > span { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .4s ease; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+
+.reasons { margin: 0 0 16px; padding-left: 1.2em; max-width: 60ch; }
+.reasons li { margin: 4px 0; }
+
+audio { width: 100%; margin: 6px 0 14px; }
+.chapters { list-style: none; padding: 0; margin: 12px 0 0; max-height: 280px; overflow: auto; border-top: 1px solid var(--line); }
+.chapters li { border-bottom: 1px solid var(--line); }
+.chapters button {
+  display: flex; justify-content: space-between; gap: 16px; width: 100%; background: none; border: 0;
+  color: inherit; font: inherit; text-align: left; padding: 10px 4px; cursor: pointer;
+}
+.chapters button:hover { background: var(--paper-2); }
+.chapters li.playing button { font-weight: 600; box-shadow: inset 4px 0 0 var(--signal); padding-left: 12px; }
+.chapters time { color: var(--ink-2); font-variant-numeric: tabular-nums; flex: none; }
+
+.library { margin-top: 56px; }
+.library h2 { font: 600 1.3rem var(--serif); margin: 0 0 6px; }
+.lib-list { list-style: none; margin: 0; padding: 0; }
+.lib-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.lib-main { flex: 1; min-width: 0; background: none; border: 0; padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.lib-main:hover .lib-name { text-decoration: underline; }
+.lib-name { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-meta { display: block; font-size: .875rem; color: var(--ink-2); }
+.lib-del { background: none; border: 0; color: var(--ink-2); cursor: pointer; font: inherit; font-size: .875rem; padding: 6px 8px; border-radius: 8px; }
+.lib-del:hover { color: var(--danger); }
+.empty { color: var(--ink-2); padding: 12px 0; }
+
+@media (max-width: 520px) {
+  .stage { padding: 20px 16px; }
+  .options { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar > span, .stage { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="var(--ink)"/>
+        <g fill="var(--signal)">
+          <rect x="6" y="13" width="3" height="6" rx="1.5"/><rect x="11" y="8" width="3" height="16" rx="1.5"/>
+          <rect x="16" y="5" width="3" height="22" rx="1.5"/><rect x="21" y="10" width="3" height="12" rx="1.5"/>
+          <rect x="26" y="14" width="3" height="4" rx="1.5"/>
+        </g>
+      </svg>
+      Murmur
+    </div>
+    <a href="#library">Your audiobooks</a>
+  </header>
+
+  <h1>Read any book to me.</h1>
+  <p class="lede">Drop in a book as a PDF and get back an audiobook you can keep. It's free, and it runs on this computer.</p>
+
+  <button class="stage" id="stage" type="button" aria-describedby="stage-sub">
+    <canvas id="wave" aria-hidden="true"></canvas>
+    <span class="stage-title" id="stage-title">Drop a book PDF here</span>
+    <span class="stage-sub" id="stage-sub">or choose a file from your computer</span>
+  </button>
+  <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+
+  <div class="options">
+    <div class="field">
+      <label for="voice">Voice</label>
+      <div class="pick">
+        <select id="voice"></select>
+        <button class="btn ghost small" type="button" id="preview">Hear it</button>
+      </div>
+    </div>
+    <div class="field speed">
+      <label for="speed">Speed <output id="speed-out">1.00×</output></label>
+      <input type="range" id="speed" min="0.7" max="1.3" step="0.05" value="1">
+    </div>
+    <div class="field">
+      <label for="format">File type</label>
+      <select id="format">
+        <option value="m4b">Audiobook (m4b)</option>
+        <option value="mp3">Single MP3</option>
+        <option value="zip">MP3 per chapter (zip)</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+  <section class="panel" id="working" hidden aria-live="polite">
+    <h2 id="working-title">Working on it</h2>
+    <ol class="steps" id="steps"></ol>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="bar"><span></span></div>
+    <p class="muted" id="working-msg"></p>
+    <div class="row-actions"><button class="btn ghost small" type="button" id="cancel">Cancel</button></div>
+  </section>
+
+  <section class="panel" id="verdict" hidden>
+    <h2 id="verdict-title"></h2>
+    <ul class="reasons" id="verdict-reasons"></ul>
+    <p class="muted">You can still convert it. The audiobook will skip anything that only makes sense visually.</p>
+    <div class="row-actions">
+      <button class="btn" type="button" id="confirm">Convert anyway</button>
+      <button class="btn ghost" type="button" id="discard">Choose another file</button>
+    </div>
+  </section>
+
+  <section class="panel" id="result" hidden>
+    <h2 id="result-title"></h2>
+    <p class="muted" id="result-meta"></p>
+    <audio id="player" controls preload="metadata"></audio>
+    <div class="row-actions"><a class="btn" id="download" href="#">Download</a></div>
+    <ul class="chapters" id="chapters"></ul>
+  </section>
+
+  <section class="library" id="library">
+    <h2>Your audiobooks</h2>
+    <ul class="lib-list" id="lib-list"></ul>
+  </section>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+function h(tag, props = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, "");
+    else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(kid));
+  return el;
+}
+
+const STEPS = ["Check file", "Evaluate book", "Read text", "Narrate", "Package"];
+const STAGE_INDEX = { validate: 0, analyze: 1, extract: 2, narrate: 3, encode: 4 };
+const VERDICTS = {
+  audiobook_friendly: "Works well as an audiobook",
+  borderline: "Works, with a few figures skipped",
+  needs_visuals: "This looks like a technical book",
+  not_a_book: "This doesn't look like a book",
+  scanned: "This book is made of scanned pages",
+};
+
+let current = null;        // { id, source, timer }
+let libTimer = null;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- waveform ---------- */
+const canvas = $("#wave");
+const ctx = canvas.getContext("2d");
+const wave = { mode: "idle", progress: 0, raf: 0 };
+const BARS = 64;
+const seeded = Array.from({ length: BARS }, (_, i) => 0.35 + 0.65 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.45)));
+
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function drawWave(t = 0) {
+  const dpr = devicePixelRatio || 1;
+  const w = canvas.clientWidth, hgt = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(hgt * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, hgt);
+  const slot = w / BARS, bw = Math.max(slot * 0.5, 2), mid = hgt / 2;
+  const signal = cssVar("--signal"), flat = cssVar("--ink-2");
+  const reached = wave.mode === "done" ? BARS : wave.progress * BARS;
+  for (let i = 0; i < BARS; i++) {
+    const x = i * slot + (slot - bw) / 2;
+    let barH, color;
+    if (i < reached) {
+      const live = wave.mode === "working" && !reduceMotion
+        ? 0.55 + 0.45 * Math.sin(i * 0.8 + t / 260) * Math.cos(i * 0.31 - t / 610)
+        : 1;
+      barH = Math.max(6, (hgt - 8) * seeded[i] * Math.abs(live));
+      color = signal; ctx.globalAlpha = 1;
+    } else {
+      barH = 3; color = flat; ctx.globalAlpha = 0.4;
+    }
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.roundRect(x, mid - barH / 2, bw, barH, bw / 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function loop(t) {
+  drawWave(t);
+  wave.raf = wave.mode === "working" && !reduceMotion ? requestAnimationFrame(loop) : 0;
+}
+function setWave(mode, progress = 0) {
+  wave.mode = mode; wave.progress = mode === "idle" ? 0 : progress;
+  if (!wave.raf) wave.raf = requestAnimationFrame(loop);
+}
+addEventListener("resize", () => drawWave(performance.now()));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => drawWave(performance.now()));
+
+/* ---------- helpers ---------- */
+async function api(url, opts) {
+  let res;
+  try { res = await fetch(url, opts); } catch { throw new Error("Can't reach Murmur. Is it still running?"); }
+  if (res.status === 204) return null;
+  let body = null;
+  try { body = await res.json(); } catch {}
+  if (!res.ok) throw new Error(body?.detail?.message || "Something went wrong.");
+  return body;
+}
+function notify(kind, text) {
+  const n = $("#notice");
+  if (!text) { n.hidden = true; return; }
+  n.className = "notice" + (kind === "error" ? " error" : "");
+  n.replaceChildren(...(Array.isArray(text) ? text : [text]));
+  n.hidden = false;
+}
+function fmtDuration(sec) {
+  sec = Math.round(sec);
+  const hrs = Math.floor(sec / 3600), min = Math.floor((sec % 3600) / 60);
+  if (hrs) return `${hrs} h ${min} min`;
+  return min ? `${min} min` : `${sec} s`;
+}
+function fmtClock(sec) {
+  sec = Math.floor(sec);
+  const hrs = Math.floor(sec / 3600), min = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const mm = String(min).padStart(2, "0"), ss = String(s).padStart(2, "0");
+  return hrs ? `${hrs}:${mm}:${ss}` : `${min}:${ss}`;
+}
+function fmtBytes(n) { return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${Math.round(n / 1e6)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`; }
+function setStage(title, sub) { $("#stage-title").textContent = title; $("#stage-sub").textContent = sub || ""; }
+function hideAll() { for (const id of ["working", "verdict", "result"]) $("#" + id).hidden = true; }
+const locked = () => $("#stage").getAttribute("aria-disabled") === "true";
+function setLocked(on) { $("#stage").setAttribute("aria-disabled", on ? "true" : "false"); }
+
+/* ---------- setup ---------- */
+async function loadVoices() {
+  const data = await api("/api/voices");
+  const sel = $("#voice");
+  sel.replaceChildren();
+  const groups = {};
+  for (const v of data.voices) (groups[v.group] ||= []).push(v);
+  for (const [group, voices] of Object.entries(groups)) {
+    sel.append(h("optgroup", { label: group }, voices.map((v) => h("option", { value: v.id }, v.label))));
+  }
+  sel.value = data.default;
+}
+async function checkHealth() {
+  try {
+    const info = await api("/api/health");
+    if (!info.ffmpeg) {
+      notify("error", ["Murmur needs ffmpeg to build audiobooks. Install it from ffmpeg.org, then reload this page."]);
+    } else if (!info.active_engine) {
+      notify("info", ["No voice is set up yet. Run ", h("code", {}, "murmur models kokoro"),
+        " in a terminal to download a free, natural-sounding one, then reload this page."]);
+    }
+  } catch (e) { notify("error", e.message); }
+}
+
+/* ---------- upload ---------- */
+async function looksLikePdf(file) {
+  const head = await file.slice(0, 1024).text();
+  return head.includes("%PDF-");
+}
+function upload(file) {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("voice", $("#voice").value);
+    fd.append("speed", $("#speed").value);
+    fd.append("format", $("#format").value);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/jobs");
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const f = e.loaded / e.total;
+      setStage(file.name, `Uploading, ${Math.round(f * 100)}%`);
+      setWave("working", f * 0.2);
+    };
+    xhr.onload = () => {
+      let body = null;
+      try { body = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body);
+      else reject(new Error(body?.detail?.message || "The upload failed."));
+    };
+    xhr.onerror = () => reject(new Error("Can't reach Murmur. Is it still running?"));
+    xhr.send(fd);
+  });
+}
+async function handleFile(file) {
+  if (!file || locked()) return;
+  notify(null);
+  if (!(await looksLikePdf(file))) {
+    notify("error", `${file.name} isn't a PDF. Murmur reads PDF books, so choose a .pdf file.`);
+    return;
+  }
+  setLocked(true);
+  hideAll();
+  setStage(file.name, "Uploading, 0%");
+  setWave("working", 0);
+  try {
+    const job = await upload(file);
+    follow(job.id);
+  } catch (e) {
+    setLocked(false);
+    resetStage();
+    notify("error", e.message);
+  }
+}
+function resetStage() {
+  setWave("idle");
+  setStage("Drop a book PDF here", "or choose a file from your computer");
+}
+
+/* ---------- following a job ---------- */
+function stopFollowing() {
+  if (!current) return;
+  current.source?.close();
+  clearTimeout(current.timer);
+  current = null;
+}
+function follow(id) {
+  stopFollowing();
+  history.replaceState(null, "", `#job=${id}`);
+  const me = (current = { id, source: null, timer: 0 });
+  const poll = async () => {
+    if (current !== me) return;
+    try { render(await api(`/api/jobs/${id}`)); } catch (e) { notify("error", e.message); return; }
+    me.timer = setTimeout(poll, 1500);
+  };
+  if ("EventSource" in window) {
+    me.source = new EventSource(`/api/jobs/${id}/events`);
+    me.source.onmessage = (ev) => current === me && render(JSON.parse(ev.data));
+    me.source.onerror = () => { me.source?.close(); me.source = null; poll(); };
+  } else poll();
+}
+
+function render(job) {
+  if (!current || current.id !== job.id) return;
+  const active = job.status === "queued" || job.status === "running";
+  setLocked(active);
+  hideAll();
+  if (!active) { current.source?.close(); clearTimeout(current.timer); }
+  scheduleLibrary();
+
+  const reportLine = job.report && job.report.estimated_hours
+    ? `About ${job.report.estimated_hours} hours of audio.` : "";
+
+  if (active) {
+    const idx = STAGE_INDEX[job.stage] ?? -1;
+    $("#steps").replaceChildren(...STEPS.map((s, i) => h("li", { class: i < idx ? "done" : i === idx ? "current" : "" }, s)));
+    const pct = Math.round((job.progress || 0) * 100);
+    $("#bar").setAttribute("aria-valuenow", pct);
+    $("#bar > span").style.width = pct + "%";
+    const eta = job.eta_sec && job.stage === "narrate" ? ` About ${fmtDuration(job.eta_sec)} left.` : "";
+    $("#working-title").textContent = job.title || job.filename;
+    $("#working-msg").textContent = `${job.message || "Starting"}.${eta} ${reportLine}`.replace("..", ".").trim();
+    $("#working").hidden = false;
+    setStage(job.title || job.filename, `${pct}% done`);
+    setWave("working", Math.max(job.progress || 0, 0.04));
+    return;
+  }
+
+  if (job.status === "needs_confirmation") {
+    resetStage(); setStage(job.filename, "Waiting for your decision");
+    $("#verdict-title").textContent = VERDICTS[job.report?.verdict] || "Check this book first";
+    $("#verdict-reasons").replaceChildren(...(job.report?.reasons || []).map((r) => h("li", {}, r)));
+    $("#verdict").hidden = false;
+    return;
+  }
+
+  if (job.status === "done") {
+    setStage(job.title || job.filename, "Ready to listen"); setWave("done", 1);
+    $("#result-title").textContent = job.title || job.filename;
+    $("#result-meta").textContent = `${fmtDuration(job.duration_sec || 0)} of audio in ${job.chapters?.length || 0} ${job.chapters?.length === 1 ? "chapter" : "chapters"}.`;
+    const player = $("#player");
+    const playable = job.output_format !== "zip";
+    player.hidden = !playable;
+    if (playable && !player.src.endsWith(`/api/jobs/${job.id}/download`)) {
+      player.src = `/api/jobs/${job.id}/download`;
+      player.onerror = () => notify("info", "Your browser can't play this file type. Download it to listen in any audiobook app.");
+    }
+    $("#download").href = `/api/jobs/${job.id}/download?attachment=true`;
+    $("#download").textContent = `Download ${job.output_format === "zip" ? "chapters (zip)" : job.output_format === "mp3" ? "MP3" : "audiobook"}`;
+    const list = $("#chapters");
+    list.replaceChildren(...(playable ? (job.chapters || []) : []).map((c, i) => h("li", { "data-start": c.start },
+      h("button", { type: "button", onclick: () => { player.currentTime = c.start; player.play(); } },
+        h("span", {}, c.title), h("time", {}, fmtClock(c.start))))));
+    $("#result").hidden = false;
+    setLocked(false);
+    return;
+  }
+
+  // rejected, failed, cancelled
+  resetStage(); setLocked(false);
+  const text = job.error || job.message || "That didn't work.";
+  notify(job.status === "cancelled" ? "info" : "error", job.status === "cancelled" ? "Cancelled." : text);
+}
+
+$("#player").addEventListener("timeupdate", () => {
+  const t = $("#player").currentTime;
+  const items = [...document.querySelectorAll("#chapters li")];
+  let idx = -1;
+  items.forEach((li, i) => { if (Number(li.dataset.start) <= t) idx = i; });
+  items.forEach((li, i) => li.classList.toggle("playing", i === idx));
+});
+
+/* ---------- library ---------- */
+function scheduleLibrary() { clearTimeout(libTimer); libTimer = setTimeout(loadLibrary, 400); }
+const STATUS_TEXT = {
+  queued: "Waiting", running: "In progress", needs_confirmation: "Needs your decision",
+  done: "Ready", failed: "Failed", cancelled: "Cancelled", rejected: "Couldn't convert",
+};
+async function loadLibrary() {
+  let jobs = [];
+  try { jobs = await api("/api/jobs"); } catch { return; }
+  const list = $("#lib-list");
+  if (!jobs.length) { list.replaceChildren(h("li", { class: "empty" }, "Nothing here yet. Your finished audiobooks will show up in this list.")); return; }
+  list.replaceChildren(...jobs.map((j) => {
+    const date = new Date(j.created_at * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const meta = [STATUS_TEXT[j.status] || j.status, j.duration_sec ? fmtDuration(j.duration_sec) : fmtBytes(j.size_bytes), date].join(", ");
+    return h("li", { class: "lib-item" },
+      h("button", { class: "lib-main", type: "button", onclick: () => { notify(null); follow(j.id); scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" }); } },
+        h("span", { class: "lib-name" }, j.title || j.filename), h("span", { class: "lib-meta" }, meta)),
+      h("button", { class: "lib-del", type: "button", "aria-label": `Delete ${j.title || j.filename}`, onclick: () => removeJob(j) }, "Delete"));
+  }));
+}
+async function removeJob(j) {
+  if (!confirm(`Delete "${j.title || j.filename}"? This removes the audio file too.`)) return;
+  try {
+    if (j.status === "queued" || j.status === "running") {
+      await api(`/api/jobs/${j.id}/cancel`, { method: "POST" });
+      await new Promise((r) => setTimeout(r, 900));
+    }
+    await api(`/api/jobs/${j.id}`, { method: "DELETE" });
+    if (current?.id === j.id) { stopFollowing(); hideAll(); resetStage(); setLocked(false); history.replaceState(null, "", location.pathname); }
+    loadLibrary();
+  } catch (e) { notify("error", e.message); }
+}
+
+/* ---------- wiring ---------- */
+const stage = $("#stage"), fileInput = $("#file");
+stage.addEventListener("click", () => { if (!locked()) fileInput.click(); });
+fileInput.addEventListener("change", () => { handleFile(fileInput.files[0]); fileInput.value = ""; });
+["dragenter", "dragover"].forEach((t) => stage.addEventListener(t, (e) => { e.preventDefault(); if (!locked()) stage.classList.add("drag"); }));
+["dragleave", "drop"].forEach((t) => stage.addEventListener(t, (e) => { e.preventDefault(); stage.classList.remove("drag"); }));
+stage.addEventListener("drop", (e) => handleFile(e.dataTransfer.files[0]));
+addEventListener("dragover", (e) => e.preventDefault());
+addEventListener("drop", (e) => e.preventDefault());
+
+$("#speed").addEventListener("input", (e) => { $("#speed-out").textContent = `${Number(e.target.value).toFixed(2)}×`; });
+$("#cancel").addEventListener("click", async () => {
+  if (!current) return;
+  try { render(await api(`/api/jobs/${current.id}/cancel`, { method: "POST" })); } catch (e) { notify("error", e.message); }
+});
+$("#confirm").addEventListener("click", async () => {
+  if (!current) return;
+  const id = current.id;
+  try { await api(`/api/jobs/${id}/confirm`, { method: "POST" }); follow(id); } catch (e) { notify("error", e.message); }
+});
+$("#discard").addEventListener("click", async () => {
+  if (!current) return;
+  try { await api(`/api/jobs/${current.id}/cancel`, { method: "POST" }); } catch {}
+  stopFollowing(); hideAll(); resetStage(); setLocked(false); history.replaceState(null, "", location.pathname); loadLibrary();
+});
+
+let previewAudio = null;
+$("#preview").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "Loading…"; notify(null);
+  try {
+    const res = await fetch("/api/preview", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice: $("#voice").value, speed: Number($("#speed").value) }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.detail?.message || "Couldn't play a sample.");
+    previewAudio?.pause();
+    previewAudio = new Audio(URL.createObjectURL(await res.blob()));
+    await previewAudio.play();
+  } catch (err) { notify("error", err.message); }
+  finally { btn.disabled = false; btn.textContent = "Hear it"; }
+});
+
+(async function init() {
+  drawWave(0);
+  await Promise.allSettled([loadVoices(), checkHealth(), loadLibrary()]);
+  const m = location.hash.match(/^#job=([a-f0-9]{12})$/);
+  if (m) follow(m[1]);
+})();
+</script>
+</body>
+</html>
