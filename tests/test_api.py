@@ -125,3 +125,80 @@ def test_preview_explains_missing_engine(settings):
         res = c.post("/api/preview", json={})
     assert res.status_code == 503
     assert "kokoro" in res.json()["detail"]["message"].lower()
+
+
+# ---- voices ----------------------------------------------------------------------------------------
+def upload_voice(client, tmp_path, name="My voice", consent="true", seconds=14, filename="me.wav"):
+    from tests.speechwav import speechlike, write_wav
+
+    path = write_wav(tmp_path / filename, speechlike(seconds))
+    with open(path, "rb") as f:
+        return client.post("/api/voices", data={"name": name, "consent": consent},
+                           files={"file": (filename, f, "audio/wav")})
+
+
+@needs_ffmpeg
+def test_voice_lifecycle(client, tmp_path):
+    res = upload_voice(client, tmp_path)
+    assert res.status_code == 201, res.text
+    voice = res.json()
+    assert voice["name"] == "My voice" and voice["id"].startswith("clone-") and voice["duration_sec"] > 5
+
+    catalog = client.get("/api/voices").json()
+    assert [v["name"] for v in catalog["custom"]] == ["My voice"]
+    assert {e["name"] for e in catalog["clone_engines"]} == {"chatterbox", "xtts"}
+
+    sample = client.get(f"/api/voices/{voice['id']}/sample")
+    assert sample.status_code == 200 and sample.content[:4] == b"RIFF"
+
+    assert client.patch(f"/api/voices/{voice['id']}", json={"name": "Abhilash"}).json()["name"] == "Abhilash"
+
+    # the chosen voice becomes the default for new audiobooks
+    assert client.put("/api/voices/default", json={"voice": voice["id"]}).status_code == 200
+    assert client.get("/api/voices").json()["default"] == voice["id"]
+
+    assert client.delete(f"/api/voices/{voice['id']}").status_code == 204
+    assert client.delete(f"/api/voices/{voice['id']}").status_code == 404
+    assert client.get(f"/api/voices/{voice['id']}/sample").status_code == 404
+    after = client.get("/api/voices").json()
+    assert after["custom"] == [] and after["default"] != voice["id"]
+
+
+@needs_ffmpeg
+def test_voice_upload_errors_are_friendly(client, tmp_path):
+    assert upload_voice(client, tmp_path, consent="false").status_code == 400
+    assert upload_voice(client, tmp_path, name="  ").status_code == 400
+    short = upload_voice(client, tmp_path, seconds=0.6)
+    assert short.status_code == 400 and "too short" in short.json()["detail"]["message"]
+    assert upload_voice(client, tmp_path, name="Dup").status_code == 201
+    dup = upload_voice(client, tmp_path, name="dup")
+    assert dup.status_code == 400 and "already have" in dup.json()["detail"]["message"]
+    bad = client.post("/api/voices", data={"name": "Junk", "consent": "true"},
+                      files={"file": ("notes.mp3", b"definitely not audio", "audio/mpeg")})
+    assert bad.status_code == 400 and "couldn't read" in bad.json()["detail"]["message"]
+    assert client.put("/api/voices/default", json={"voice": "clone-0123456789"}).status_code == 404
+    assert client.put("/api/voices/default", json={"voice": "../x"}).status_code == 400
+
+
+@needs_ffmpeg
+def test_book_can_be_narrated_in_an_uploaded_voice(client, tmp_path, novel):
+    voice = upload_voice(client, tmp_path).json()
+    res = post_pdf(client, novel, voice=voice["id"])
+    assert res.status_code == 201 and res.json()["options"]["voice"] == voice["id"]
+    assert poll(client, res.json()["id"], {"done", "failed"})["status"] == "done"
+    assert post_pdf(client, novel, voice="clone-aaaaaaaaaa").status_code == 404
+
+
+def test_new_job_options_are_validated(client, novel):
+    assert post_pdf(client, novel, ai="maybe").status_code == 400
+    assert post_pdf(client, novel, pause_style="glacial").status_code == 400
+    ok = post_pdf(client, novel, ai="off", pause_style="relaxed", start_at_story="false")
+    assert ok.status_code == 201
+    options = ok.json()["options"]
+    assert (options["ai"], options["pause_style"], options["start_at_story"]) == ("off", "relaxed", False)
+
+
+def test_ai_status_is_reported(client):
+    ai = client.get("/api/ai").json()
+    assert ai["mode"] == "off" and ai["available"] is False and ai["provider"] == "rules"
+    assert client.get("/api/health").json()["ai"] == ai

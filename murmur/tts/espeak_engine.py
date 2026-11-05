@@ -30,11 +30,11 @@ class EspeakEngine(TTSEngine):
         self._wpm = int(165 * speed)
         self.sample_rate = 22050
 
-    def synthesize(self, text: str) -> np.ndarray:
+    def synthesize(self, text: str, *, speed: float = 1.0, intensity: float = 0.5) -> np.ndarray:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out.wav"
             subprocess.run(
-                [self._exe, "-v", self._voice, "-s", str(self._wpm), "--stdin", "-w", str(out)],
+                [self._exe, "-v", self._voice, "-s", str(int(self._wpm * speed)), "--stdin", "-w", str(out)],
                 input=text.encode("utf-8"), capture_output=True, check=True,
             )
             with wave.open(str(out), "rb") as w:

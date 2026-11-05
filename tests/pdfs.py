@@ -124,3 +124,67 @@ def make_scanned_text(path: Path, pages: int = 4) -> Path:
         doc.save(path)
         doc.close()
     return path
+
+
+FRONT_TITLE = ["THE LIGHTHOUSE KEEPER", "A Novel", "A. WRITER"]
+COPYRIGHT = (
+    "Copyright © 2020 by A. Writer. All rights reserved. No part of this book may be reproduced or "
+    "transmitted in any form or by any means without written permission. Published by Tidewater Press, "
+    "12 Harbour Road. ISBN 978-1-23456-789-0. First edition. This is a work of fiction. Any resemblance to "
+    "actual persons, living or dead, is entirely coincidental."
+)
+DEDICATION = "For my mother, who always left the light on."
+EPIGRAPH = '"The sea does not care."'
+STORY_PARAS = [
+    "The old lighthouse keeper walked along the shore each morning, counting the gulls and listening to the tide. "
+    "He had done it for forty years and he did not intend to stop now that the storms were coming back.",
+    '"You should come inside," said Marta from the doorway. "The tea is hot and the wind is rising."',
+    '"In a minute," he said. He did not move.',
+    "The waves kept coming, one after another, grey and patient, and far out a light blinked twice and went dark.",
+]
+ACKNOWLEDGMENTS = (
+    "I wish to thank my editor, my agent, and my family for their patience while this book was written. "
+    "Any mistakes that remain are mine alone."
+)
+ABOUT_AUTHOR = "A. Writer lives by the sea with two cats. Visit www.awriter.example for news and sign up for the newsletter."
+
+
+def make_novel_with_matter(path: Path, outline: bool = True, chapters: int = 3) -> Path:
+    """A novel wrapped in publishing furniture: title page, copyright, dedication, epigraph, prologue,
+    chapters with dialogue and scene breaks, then acknowledgments and an author bio."""
+    doc = pymupdf.open()
+    entries: list[list] = []
+
+    def page(title: str | None, paragraphs: list[str], header: bool = True, outline_title: str | None = None):
+        pg = doc.new_page(width=420, height=640)
+        if header:
+            pg.insert_text((60, 30), "THE LIGHTHOUSE KEEPER", fontsize=9)
+        y = 70
+        if title:
+            pg.insert_text((60, y), title, fontsize=18)
+            y += 40
+        for para in paragraphs:
+            pg.insert_textbox(pymupdf.Rect(50, y, 370, y + 95), para, fontsize=11)
+            y += 100
+        if outline_title:
+            entries.append([1, outline_title, doc.page_count])
+
+    pg = doc.new_page(width=420, height=640)
+    for i, line in enumerate(FRONT_TITLE):
+        pg.insert_text((90, 220 + i * 40), line, fontsize=22 if i == 0 else 14)
+    entries.append([1, "Title Page", 1])
+    page(None, [COPYRIGHT], header=False, outline_title="Copyright")
+    page(None, [DEDICATION], header=False, outline_title="Dedication")
+    page(None, [EPIGRAPH, "- Old proverb"], header=False)
+    page("Prologue", STORY_PARAS, outline_title="Prologue")
+    for c in range(1, chapters + 1):
+        page(f"Chapter {c}", STORY_PARAS[:2] + ["* * *"] + STORY_PARAS[2:], outline_title=f"Chapter {c}")
+        page(None, STORY_PARAS + STORY_PARAS[:1])
+    page("Acknowledgments", [ACKNOWLEDGMENTS], outline_title="Acknowledgments")
+    page("About the Author", [ABOUT_AUTHOR], outline_title="About the Author")
+    if outline:
+        doc.set_toc(entries)
+    doc.set_metadata({"title": "The Lighthouse Keeper", "author": "A. Writer"})
+    doc.save(path)
+    doc.close()
+    return path

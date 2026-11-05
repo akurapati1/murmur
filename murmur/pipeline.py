@@ -1,8 +1,10 @@
 """End-to-end job pipeline: validate -> evaluate -> read -> narrate -> encode."""
 from __future__ import annotations
 
+import inspect
 import json
 import logging
+import os
 import re
 import shutil
 import threading
@@ -12,20 +14,22 @@ from pathlib import Path
 
 import pymupdf
 
-from .audio import ChapterTrack, FFmpegError, assemble, float_to_pcm, silence
-from .chunker import build_chunks
+from .ai import AIError, resolve_provider
+from .audio import ChapterTrack, FFmpegError, assemble, float_to_pcm, silence, trim_silence
 from .classifier import analyze_pdf, ocr_available
 from .config import Settings
+from .director import DirectorOptions, Script, direct_book
 from .extract import Cancelled, OCRUnavailable, extract_book
-from .models import Book, JobStatus, Verdict
+from .models import Book, Chunk, JobStatus, Verdict
 from .store import JobStore
 from .tts import EngineUnavailable, create_engine
 from .validation import validate_pdf
+from .voices import effective_voice
 
 log = logging.getLogger("murmur.pipeline")
 
 # Share of the progress bar given to each stage.
-P_VALIDATE, P_ANALYZE, P_EXTRACT, P_NARRATE, P_ENCODE = 0.01, 0.05, 0.12, 0.92, 1.0
+P_VALIDATE, P_ANALYZE, P_EXTRACT, P_DIRECT, P_NARRATE, P_ENCODE = 0.01, 0.05, 0.12, 0.17, 0.92, 1.0
 
 UpdateCb = Callable[[dict], None]
 
@@ -65,13 +69,21 @@ def _render_cover(pdf: Path, target: Path) -> Path | None:
         return None
 
 
-def _synth_chunk(engine, text: str):
+def _accepts_direction(engine) -> bool:
+    try:
+        return "speed" in inspect.signature(engine.synthesize).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _synth_chunk(engine, chunk: Chunk, directed: bool = True):
     """Synthesize one chunk, retrying once with simplified text before giving up on it."""
-    for attempt in (text, re.sub(r"[^\w\s.,!?'\"-]", " ", text)):
+    kwargs = {"speed": chunk.speed, "intensity": chunk.intensity} if directed else {}
+    for attempt in (chunk.text, re.sub(r"[^\w\s.,!?'\"-]", " ", chunk.text)):
         if not attempt.strip():
             continue
         try:
-            return engine.synthesize(attempt)
+            return engine.synthesize(attempt, **kwargs)
         except EngineUnavailable:
             raise
         except Exception as exc:
@@ -166,11 +178,38 @@ def _run(job, store: JobStore, settings: Settings, cancel, prog: _Progress, jobd
     title = check.title or book.title
     store.update(job_id, title=title, author=check.author or book.author)
 
-    # 4. Narrate.
-    plan = [build_chunks(c, settings.chunk_chars) for c in book.chapters]
+    # 4. Direct: where the story starts, and how every sentence should be performed.
+    plan_file = work / "plan.json"
+    if plan_file.exists():
+        script = Script.from_dict(json.loads(plan_file.read_text()))
+    else:
+        def on_direct(frac: float, msg: str) -> None:
+            prog.set("direct", P_EXTRACT + (P_DIRECT - P_EXTRACT) * frac, msg)
+
+        prog.set("direct", P_EXTRACT, "Finding where the story begins", force=True)
+        try:
+            provider = resolve_provider(settings)
+        except AIError as exc:
+            log.warning("AI director unavailable: %s", exc)
+            provider = None
+        script = direct_book(book, settings, DirectorOptions.from_job(options, settings), provider=provider,
+                             cache_path=work / "ai_cache.json", progress=on_direct, cancel=cancel)
+        tmp = plan_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(script.to_dict()))
+        os.replace(tmp, plan_file)
+    store.update(job_id, direction=script.report)
+    if not script.chapters:
+        msg = "I couldn't find any story text to read in this PDF."
+        store.update(job_id, status=JobStatus.REJECTED.value, error=msg, message=msg, eta_sec=None)
+        return
+
+    # 5. Narrate.
+    plan = [c.chunks for c in script.chapters]
+    chapter_titles = [c.title for c in script.chapters]
     total_chars = max(sum(len(ch.text) for chunks in plan for ch in chunks), 1)
-    engine = create_engine(settings, engine=options.get("engine"), voice=options.get("voice"),
-                           speed=options.get("speed"))
+    voice = effective_voice(settings, options.get("voice"))
+    engine = create_engine(settings, engine=options.get("engine"), voice=voice, speed=options.get("speed"))
+    directed = _accepts_direction(engine)
     audio_dir = work / "audio"
     tracks = [ChapterTrack(audio_dir, i) for i in range(len(plan))]
     done_chars = 0
@@ -178,7 +217,7 @@ def _run(job, store: JobStore, settings: Settings, cancel, prog: _Progress, jobd
     skipped = 0
     sample_rate = 0
 
-    for ci, (chapter, chunks, track) in enumerate(zip(book.chapters, plan, tracks)):
+    for ci, (chapter_title, chunks, track) in enumerate(zip(chapter_titles, plan, tracks)):
         state = track.load()
         chapter_chars = sum(len(c.text) for c in chunks)
         if state["complete"]:
@@ -192,12 +231,13 @@ def _run(job, store: JobStore, settings: Settings, cancel, prog: _Progress, jobd
             for j in range(start, len(chunks)):
                 _check(cancel)
                 chunk = chunks[j]
-                samples = _synth_chunk(engine, chunk.text)
+                samples = _synth_chunk(engine, chunk, directed)
                 sample_rate = int(engine.sample_rate)
                 if samples is None:
                     skipped += 1
                 else:
-                    f.write(float_to_pcm(samples))
+                    # Trim the engine's own padding so the pause is exactly the one the director chose.
+                    f.write(float_to_pcm(trim_silence(samples, sample_rate)))
                     f.write(silence(chunk.pause_after, sample_rate))
                 track.commit(f, j + 1, sample_rate)
                 done_chars += len(chunk.text)
@@ -205,12 +245,12 @@ def _run(job, store: JobStore, settings: Settings, cancel, prog: _Progress, jobd
                 elapsed = max(time.monotonic() - session_start, 1e-6)
                 eta = (total_chars - done_chars) / (session_chars / elapsed) if session_chars else None
                 prog.set("narrate", P_EXTRACT + (P_NARRATE - P_EXTRACT) * done_chars / total_chars,
-                         f"Reading chapter {ci + 1} of {len(plan)}: {chapter.title[:60]}", eta)
+                         f"Reading chapter {ci + 1} of {len(plan)}: {chapter_title[:60]}", eta)
             track.commit(f, len(chunks), sample_rate, complete=True)
         finally:
             f.close()
 
-    # 5. Encode.
+    # 6. Encode.
     fmt = options.get("format", "m4b")
     out_dir = jobdir / "output"
     shutil.rmtree(out_dir, ignore_errors=True)
@@ -222,7 +262,7 @@ def _run(job, store: JobStore, settings: Settings, cancel, prog: _Progress, jobd
 
     prog.set("encode", P_NARRATE, "Packaging your audiobook", force=True)
     timings = assemble(
-        tracks, [c.title for c in book.chapters], out_path, fmt=fmt, sample_rate=sample_rate or 24000,
+        tracks, chapter_titles, out_path, fmt=fmt, sample_rate=sample_rate or 24000,
         bitrate=settings.bitrate, book_title=title, author=check.author or book.author,
         cover=cover, work_dir=work / "encode", progress=on_encode,
     )

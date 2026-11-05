@@ -27,6 +27,28 @@ def float_to_pcm(samples: np.ndarray) -> bytes:
     return (clipped * 32767.0).astype("<i2").tobytes()
 
 
+def trim_silence(samples: np.ndarray, sample_rate: int, threshold: float = 0.006, keep: float = 0.02,
+                 fade: float = 0.008) -> np.ndarray:
+    """Cut the engine's own leading/trailing silence so the pauses the director chose are exact.
+
+    ``keep`` leaves a hair of room so word edges aren't clipped; ``fade`` removes clicks at the cut.
+    """
+    x = np.asarray(samples, dtype=np.float32)
+    if x.size == 0:
+        return x
+    loud = np.flatnonzero(np.abs(x) > threshold)
+    if loud.size == 0:
+        return x[: int(0.05 * sample_rate)]  # all silence: keep a blink so timing stays sane
+    pad = int(keep * sample_rate)
+    out = x[max(loud[0] - pad, 0): min(loud[-1] + pad + 1, x.size)].copy()
+    n = min(int(fade * sample_rate), out.size // 2)
+    if n:
+        ramp = np.linspace(0.0, 1.0, n, dtype=np.float32)
+        out[:n] *= ramp
+        out[-n:] *= ramp[::-1]
+    return out
+
+
 def silence(seconds: float, sample_rate: int) -> bytes:
     return b"\x00" * (int(seconds * sample_rate) * SAMPLE_WIDTH)
 

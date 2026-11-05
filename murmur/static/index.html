@@ -75,11 +75,15 @@ h1 {
 .pick { display: flex; gap: 10px; align-items: center; }
 .pick select { flex: 1; min-width: 0; }
 .field label { font-size: .875rem; color: var(--ink-2); }
-select, input[type=range] { font: inherit; color: inherit; }
-select {
+select, input[type=range], input[type=text], input[type=file] { font: inherit; color: inherit; }
+select, input[type=text], input[type=file] {
   background: var(--paper); border: 1.5px solid var(--line); border-radius: 10px;
   padding: 9px 12px; width: 100%;
 }
+.field small { font-size: .8rem; color: var(--ink-2); line-height: 1.35; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: .95rem; color: var(--ink); cursor: pointer; }
+.check input { margin-top: 4px; accent-color: var(--accent); flex: none; }
+.options.director { margin-top: 14px; }
 input[type=range] { width: 100%; accent-color: var(--accent); margin: 8px 0; }
 
 .btn {
@@ -137,9 +141,28 @@ audio { width: 100%; margin: 6px 0 14px; }
 .lib-del:hover { color: var(--danger); }
 .empty { color: var(--ink-2); padding: 12px 0; }
 
+.voices { margin-top: 56px; }
+.voices h2 { font: 600 1.3rem var(--serif); margin: 0 0 6px; }
+.voices p { max-width: 62ch; margin: 0 0 14px; }
+.voice-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 14px 24px; align-items: start; padding: 18px; background: var(--paper-2); border-radius: 16px; }
+.voice-form .wide, .voice-form .row-actions { grid-column: 1 / -1; margin-top: 0; }
+.voice-item { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.voice-item .lib-main { cursor: default; }
+.voice-item .lib-main:hover .lib-name { text-decoration: none; }
+.badge { display: inline-block; font-size: .75rem; font-weight: 600; background: var(--signal); color: #1B1938; border-radius: 99px; padding: 1px 9px; margin-left: 8px; vertical-align: 1px; }
+.voice-btn { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; font-size: .875rem; padding: 6px 8px; border-radius: 8px; }
+.voice-btn:hover { background: var(--paper-2); }
+.voice-warn { color: var(--ink-2); font-size: .85rem; margin: 2px 0 0; max-width: none; }
+
+.direction { margin: 14px 0 0; font-size: .95rem; }
+.direction summary { cursor: pointer; font-weight: 600; }
+.direction ul { margin: 8px 0 0; padding-left: 1.2em; color: var(--ink-2); }
+.direction blockquote { margin: 8px 0; padding: 4px 14px; border-left: 3px solid var(--signal); color: var(--ink-2); font-family: var(--serif); }
+
 @media (max-width: 520px) {
   .stage { padding: 20px 16px; }
   .options { grid-template-columns: 1fr; }
+  .voice-form { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   .bar > span, .stage { transition: none; }
@@ -195,6 +218,25 @@ audio { width: 100%; margin: 6px 0 14px; }
     </div>
   </div>
 
+  <div class="options director">
+    <div class="field">
+      <label for="pauses">Pauses</label>
+      <select id="pauses">
+        <option value="snappy">Snappy</option>
+        <option value="natural" selected>Natural</option>
+        <option value="relaxed">Relaxed, like a long audiobook</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="check"><input type="checkbox" id="start-story" checked> Start at the story</label>
+      <small>Skips the cover, copyright page, dedication, acknowledgments and author bio.</small>
+    </div>
+    <div class="field">
+      <label class="check"><input type="checkbox" id="use-ai" checked> Let an AI direct the reading</label>
+      <small id="ai-note">Checking…</small>
+    </div>
+  </div>
+
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 
   <section class="panel" id="working" hidden aria-live="polite">
@@ -220,7 +262,27 @@ audio { width: 100%; margin: 6px 0 14px; }
     <p class="muted" id="result-meta"></p>
     <audio id="player" controls preload="metadata"></audio>
     <div class="row-actions"><a class="btn" id="download" href="#">Download</a></div>
+    <details class="direction" id="direction" hidden></details>
     <ul class="chapters" id="chapters"></ul>
+  </section>
+
+  <section class="voices" id="voices">
+    <h2>Your voices</h2>
+    <p class="muted">Upload a recording of yourself, name it, and Murmur can read whole books in your voice. Ten to thirty seconds of clear, natural speech in a quiet room works best. MP3, WAV, M4A, OGG, FLAC and most video files are fine.</p>
+    <form class="voice-form" id="voice-form">
+      <div class="field">
+        <label for="voice-name">Name this voice</label>
+        <input type="text" id="voice-name" maxlength="40" placeholder="My voice" autocomplete="off" required>
+      </div>
+      <div class="field">
+        <label for="voice-file">Recording</label>
+        <input type="file" id="voice-file" accept="audio/*,video/*,.m4a,.mp3,.wav,.ogg,.flac,.aac,.opus" required>
+      </div>
+      <label class="check wide"><input type="checkbox" id="voice-consent"> This is my own voice, or I have permission to use it.</label>
+      <div class="row-actions"><button class="btn" type="submit" id="voice-save">Save voice</button></div>
+    </form>
+    <p class="muted" id="clone-note"></p>
+    <ul class="lib-list" id="voice-list"></ul>
   </section>
 
   <section class="library" id="library">
@@ -243,8 +305,8 @@ function h(tag, props = {}, ...kids) {
   return el;
 }
 
-const STEPS = ["Check file", "Evaluate book", "Read text", "Narrate", "Package"];
-const STAGE_INDEX = { validate: 0, analyze: 1, extract: 2, narrate: 3, encode: 4 };
+const STEPS = ["Check file", "Evaluate book", "Read text", "Plan the reading", "Narrate", "Package"];
+const STAGE_INDEX = { validate: 0, analyze: 1, extract: 2, direct: 3, narrate: 4, encode: 5 };
 const VERDICTS = {
   audiobook_friendly: "Works well as an audiobook",
   borderline: "Works, with a few figures skipped",
@@ -339,20 +401,89 @@ const locked = () => $("#stage").getAttribute("aria-disabled") === "true";
 function setLocked(on) { $("#stage").setAttribute("aria-disabled", on ? "true" : "false"); }
 
 /* ---------- setup ---------- */
+let voiceData = { custom: [], default: null, clone_engines: [] };
 async function loadVoices() {
-  const data = await api("/api/voices");
+  const data = voiceData = await api("/api/voices");
   const sel = $("#voice");
   sel.replaceChildren();
+  if (data.custom.length) {
+    sel.append(h("optgroup", { label: "My voices" }, data.custom.map((v) => h("option", { value: v.id }, v.name))));
+  }
   const groups = {};
   for (const v of data.voices) (groups[v.group] ||= []).push(v);
   for (const [group, voices] of Object.entries(groups)) {
     sel.append(h("optgroup", { label: group }, voices.map((v) => h("option", { value: v.id }, v.label))));
   }
   sel.value = data.default;
+  if (sel.value !== data.default) sel.selectedIndex = 0;
+  renderVoiceList();
+}
+async function saveDefaultVoice(id) {
+  try { await api("/api/voices/default", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ voice: id }) }); voiceData.default = id; renderVoiceList(); }
+  catch (e) { notify("error", e.message); }
+}
+function renderVoiceList() {
+  const list = $("#voice-list");
+  const noEngine = !voiceData.clone_engines.some((e) => e.available);
+  $("#clone-note").replaceChildren(...(noEngine ? [
+    "To narrate in your voice, install a free voice-cloning engine: ", h("code", {}, "pip install 'murmur[clone]'"),
+    ". A graphics card makes it much faster."] : []));
+  if (!voiceData.custom.length) { list.replaceChildren(h("li", { class: "empty" }, "No saved voices yet.")); return; }
+  list.replaceChildren(...voiceData.custom.map((v) => {
+    const isDefault = voiceData.default === v.id;
+    return h("li", { class: "voice-item" },
+      h("div", { class: "lib-main" },
+        h("span", { class: "lib-name" }, v.name, isDefault ? h("span", { class: "badge" }, "Default") : null),
+        h("span", { class: "lib-meta" }, `${Math.round(v.duration_sec)} s of speech`),
+        ...(v.warnings || []).map((w) => h("p", { class: "voice-warn" }, w))),
+      h("button", { class: "voice-btn", type: "button", onclick: () => playSample(v) }, "Play"),
+      h("button", { class: "voice-btn", type: "button", disabled: isDefault,
+        onclick: () => { $("#voice").value = v.id; saveDefaultVoice(v.id); } }, isDefault ? "In use" : "Use this voice"),
+      h("button", { class: "lib-del", type: "button", "aria-label": `Delete voice ${v.name}`, onclick: () => deleteVoice(v) }, "Delete"));
+  }));
+}
+let sampleAudio = null;
+function playSample(v) { sampleAudio?.pause(); sampleAudio = new Audio(`/api/voices/${v.id}/sample`); sampleAudio.play().catch(() => notify("error", "Couldn't play that recording.")); }
+async function deleteVoice(v) {
+  if (!confirm(`Delete the voice "${v.name}"? Audiobooks already made with it are not affected.`)) return;
+  try { await api(`/api/voices/${v.id}`, { method: "DELETE" }); await loadVoices(); }
+  catch (e) { notify("error", e.message); }
+}
+$("#voice").addEventListener("change", (e) => saveDefaultVoice(e.target.value));
+$("#voice-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("#voice-save"), file = $("#voice-file").files[0];
+  if (!file) return;
+  if (!$("#voice-consent").checked) { notify("error", "Please confirm that this is your own voice, or that you have permission to use it."); return; }
+  const fd = new FormData();
+  fd.append("name", $("#voice-name").value);
+  fd.append("consent", "true");
+  fd.append("file", file);
+  btn.disabled = true; btn.textContent = "Saving…"; notify(null);
+  try {
+    const voice = await api("/api/voices", { method: "POST", body: fd });
+    e.target.reset();
+    await loadVoices();
+    $("#voice").value = voice.id;
+    await saveDefaultVoice(voice.id);
+    notify("info", `Saved "${voice.name}". It's now selected for your next audiobook.`);
+  } catch (err) { notify("error", err.message); }
+  finally { btn.disabled = false; btn.textContent = "Save voice"; }
+});
+let aiAvailable = false;
+function showAi(ai) {
+  aiAvailable = !!ai?.available;
+  const box = $("#use-ai"), note = $("#ai-note");
+  box.disabled = !aiAvailable; box.checked = aiAvailable;
+  if (!aiAvailable) { note.textContent = "Using built-in rules for where to start and where to pause. Set ANTHROPIC_API_KEY or run Ollama to add an AI."; return; }
+  note.textContent = ai.provider === "claude"
+    ? `Claude (${ai.model}) guides the start, pauses and pronunciation. The book's text is sent to Anthropic.`
+    : `${ai.provider} (${ai.model}) guides the start, pauses and pronunciation, on this computer.`;
 }
 async function checkHealth() {
   try {
     const info = await api("/api/health");
+    showAi(info.ai);
     if (!info.ffmpeg) {
       notify("error", ["Murmur needs ffmpeg to build audiobooks. Install it from ffmpeg.org, then reload this page."]);
     } else if (!info.active_engine) {
@@ -374,6 +505,9 @@ function upload(file) {
     fd.append("voice", $("#voice").value);
     fd.append("speed", $("#speed").value);
     fd.append("format", $("#format").value);
+    fd.append("ai", $("#use-ai").checked && aiAvailable ? "auto" : "off");
+    fd.append("start_at_story", $("#start-story").checked ? "true" : "false");
+    fd.append("pause_style", $("#pauses").value);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/jobs");
     xhr.upload.onprogress = (e) => {
@@ -491,6 +625,7 @@ function render(job) {
     list.replaceChildren(...(playable ? (job.chapters || []) : []).map((c, i) => h("li", { "data-start": c.start },
       h("button", { type: "button", onclick: () => { player.currentTime = c.start; player.play(); } },
         h("span", {}, c.title), h("time", {}, fmtClock(c.start))))));
+    showDirection(job.direction);
     $("#result").hidden = false;
     setLocked(false);
     return;
@@ -500,6 +635,23 @@ function render(job) {
   resetStage(); setLocked(false);
   const text = job.error || job.message || "That didn't work.";
   notify(job.status === "cancelled" ? "info" : "error", job.status === "cancelled" ? "Cancelled." : text);
+}
+
+function showDirection(d) {
+  const box = $("#direction");
+  if (!d) { box.hidden = true; return; }
+  const who = d.model ? `${d.provider} (${d.model})` : "built-in rules";
+  const removed = (d.removed || []);
+  box.replaceChildren(
+    h("summary", {}, d.start_at_story
+      ? `The story starts at "${d.story_starts_with?.chapter || "the beginning"}"` + (d.removed_words ? `. ${d.removed_words.toLocaleString()} words of front and back matter were skipped.` : ".")
+      : "Read from the first page."),
+    d.story_starts_with?.text ? h("blockquote", {}, d.story_starts_with.text) : null,
+    removed.length ? h("ul", {}, removed.map((r) => h("li", {}, `${r.where === "front" ? "Before the story" : "After the story"}: ${r.title} (${r.words.toLocaleString()} words)`))) : null,
+    h("ul", {}, h("li", {}, `Directed by ${who}; ${d.pause_style} pauses.`),
+      ...(d.reasons || []).map((r) => h("li", {}, r)),
+      ...(d.notes || []).map((r) => h("li", {}, r))));
+  box.hidden = false;
 }
 
 $("#player").addEventListener("timeupdate", () => {

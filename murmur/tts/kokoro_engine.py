@@ -30,7 +30,7 @@ class KokoroEngine(TTSEngine):
         self.speed = speed
         self.lang = language_for(voice)
 
-    def synthesize(self, text: str) -> np.ndarray:
-        samples, sr = self._engine.create(text, voice=self.voice, speed=self.speed, lang=self.lang)
+    def synthesize(self, text: str, *, speed: float = 1.0, intensity: float = 0.5) -> np.ndarray:
+        samples, sr = self._engine.create(text, voice=self.voice, speed=self.speed * speed, lang=self.lang)
         self.sample_rate = int(sr)
         return np.asarray(samples, dtype=np.float32)

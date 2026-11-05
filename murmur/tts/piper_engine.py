@@ -45,13 +45,15 @@ class PiperEngine(TTSEngine):
             self.sample_rate = int(json.loads(cfg.read_text()).get("audio", {}).get("sample_rate", 22050))
         help_text = subprocess.run([*cmd, "--help"], capture_output=True, text=True).stdout
         flag = "--length-scale" if "--length-scale" in help_text else "--length_scale"
-        self._extra = [flag, f"{1.0 / max(speed, 0.1):.3f}"]
+        self._length_flag = flag
+        self._base_speed = speed
 
-    def synthesize(self, text: str) -> np.ndarray:
+    def synthesize(self, text: str, *, speed: float = 1.0, intensity: float = 0.5) -> np.ndarray:
+        extra = [self._length_flag, f"{1.0 / max(self._base_speed * speed, 0.1):.3f}"]
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out.wav"
             subprocess.run(
-                [*self._cmd, "--model", str(self._model), "--output-file", str(out), *self._extra],
+                [*self._cmd, "--model", str(self._model), "--output-file", str(out), *extra],
                 input=text.encode("utf-8"), capture_output=True, check=True,
             )
             with wave.open(str(out), "rb") as w:

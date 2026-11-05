@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pymupdf
 
+from .chunker import SCENE_BREAK, is_scene_break
 from .models import Book, Chapter
 
 ProgressCb = Callable[[float, str], None]
@@ -79,7 +80,7 @@ def _page_blocks(page: "pymupdf.Page", ocr: bool) -> list[tuple[float, float, fl
 def _merge_paragraphs(paras: list[str]) -> list[str]:
     merged: list[str] = []
     for p in paras:
-        if merged and not _TERMINAL_RE.search(merged[-1]) and p[:1].islower():
+        if merged and not is_scene_break(merged[-1]) and not _TERMINAL_RE.search(merged[-1]) and p[:1].islower():
             merged[-1] = f"{merged[-1]} {p}"
         else:
             merged.append(p)
@@ -87,6 +88,8 @@ def _merge_paragraphs(paras: list[str]) -> list[str]:
 
 
 def _is_noise(p: str, skip_captions: bool) -> bool:
+    if is_scene_break(p):
+        return False  # kept: the narrator pauses here
     if len(p) < 2 or not re.search(r"[A-Za-z]", p):
         return True
     if _DOT_LEADER_RE.search(p) or _URL_ONLY_RE.match(p):
@@ -245,7 +248,7 @@ def extract_book(
                     continue
                 if _is_noise(text, skip_captions):
                     continue
-                paras.append(text)
+                paras.append(SCENE_BREAK if is_scene_break(text) else text)
             page_paras.append(paras)
 
         # Chapters
