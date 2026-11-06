@@ -43,7 +43,7 @@ PREFERENCE = ["kokoro", "piper", "espeak"]
 
 def _kokoro_status(settings: Settings) -> tuple[bool, str]:
     if importlib.util.find_spec("kokoro_onnx") is None:
-        return False, "Install with: pip install 'murmur[kokoro]'"
+        return False, 'Install from the Murmur folder with: pip install -e ".[kokoro]"'
     if not (settings.models_dir / "kokoro" / settings.kokoro_model).exists():
         return False, "Download the model with: murmur models kokoro"
     return True, ""
@@ -51,7 +51,7 @@ def _kokoro_status(settings: Settings) -> tuple[bool, str]:
 
 def _piper_status(settings: Settings) -> tuple[bool, str]:
     if piper_command() is None:
-        return False, "Install with: pip install 'murmur[piper]'"
+        return False, 'Install from the Murmur folder with: pip install -e ".[piper]"'
     if not (settings.models_dir / "piper" / f"{settings.piper_voice}.onnx").exists():
         return False, "Download a voice with: murmur models piper"
     return True, ""
@@ -87,7 +87,7 @@ def resolve_engine_name(settings: Settings, requested: str | None = None) -> str
             return candidate
     raise EngineUnavailable(
         "No text-to-speech engine is set up yet. The best free option is Kokoro: "
-        "pip install 'murmur[kokoro]' && murmur models kokoro. "
+        'from the Murmur folder, run pip install -e ".[kokoro]", then murmur models kokoro. '
         "For a quick start, install eSpeak NG instead."
     )
 

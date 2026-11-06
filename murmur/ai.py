@@ -2,7 +2,7 @@
 
 Three ways to get an AI in the loop, all optional:
 
-* **Claude** through the official ``anthropic`` SDK (``pip install 'murmur[ai]'`` and ``ANTHROPIC_API_KEY``).
+* **Claude** through the official ``anthropic`` SDK (``pip install -e ".[ai]"`` and ``ANTHROPIC_API_KEY``).
 * **A local model** through any OpenAI-compatible server. Ollama is detected automatically; it is free and
   keeps the book on your machine.
 * **Nothing.** The rule-based director in :mod:`murmur.matter` and :mod:`murmur.prosody` always works.
@@ -49,7 +49,9 @@ class AnthropicProvider:
         try:
             import anthropic
         except ImportError as exc:  # pragma: no cover - exercised only without the extra
-            raise AIError("The anthropic package isn't installed. Run: pip install 'murmur[ai]'") from exc
+            raise AIError(
+                "The anthropic package isn't installed. From the Murmur folder, run: pip install -e \".[ai]\""
+            ) from exc
         self._anthropic = anthropic
         self.model = model or DEFAULT_CLAUDE_MODEL
         self.effort = effort
@@ -167,7 +169,7 @@ def ai_status(settings: Settings) -> AIStatus:
         if _api_key(settings) or explicit:
             if not has_sdk:
                 return AIStatus("anthropic", False, "claude", settings.ai_model or DEFAULT_CLAUDE_MODEL,
-                                "Install the Claude SDK: pip install 'murmur[ai]'")
+                                'Install the Claude SDK from the Murmur folder: pip install -e ".[ai]"')
             return AIStatus("anthropic", True, "claude", settings.ai_model or DEFAULT_CLAUDE_MODEL)
     if mode in ("auto", "openai", "ollama", "local"):
         if settings.ai_base_url:
@@ -176,7 +178,7 @@ def ai_status(settings: Settings) -> AIStatus:
         models = _ollama_models()
         if models:
             return AIStatus("openai", True, "ollama", settings.ai_model or _pick_ollama_model(models))
-    hint = ("Optional: set ANTHROPIC_API_KEY (pip install 'murmur[ai]') for Claude, or run Ollama "
+    hint = ('Optional: set ANTHROPIC_API_KEY (from the Murmur folder: pip install -e ".[ai]") for Claude, or run Ollama '
             "(ollama.com) for a free local model. Without either, rule-based direction is used.")
     return AIStatus("off", False, "rules", "", hint)
 
