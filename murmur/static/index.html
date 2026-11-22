@@ -426,7 +426,7 @@ function renderVoiceList() {
   const list = $("#voice-list");
   const noEngine = !voiceData.clone_engines.some((e) => e.available);
   $("#clone-note").replaceChildren(...(noEngine ? [
-    "To narrate in your voice, install a free voice-cloning engine: ", h("code", {}, "pip install 'murmur[clone]'"),
+    "To narrate in your voice, install a free voice-cloning engine. From the Murmur folder, run: ", h("code", {}, 'pip install -e ".[clone]"'),
     ". A graphics card makes it much faster."] : []));
   if (!voiceData.custom.length) { list.replaceChildren(h("li", { class: "empty" }, "No saved voices yet.")); return; }
   list.replaceChildren(...voiceData.custom.map((v) => {

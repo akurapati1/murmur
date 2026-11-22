@@ -7,7 +7,7 @@ import numpy as np
 
 from .base import EngineUnavailable, TTSEngine
 
-INSTALL_HINT = "Run: pip install 'murmur[kokoro]' && murmur models kokoro"
+INSTALL_HINT = 'From the Murmur folder, run: pip install -e ".[kokoro]", then: murmur models kokoro'
 
 
 def language_for(voice: str) -> str:

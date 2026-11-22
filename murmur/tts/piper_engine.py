@@ -15,7 +15,7 @@ import numpy as np
 
 from .base import EngineUnavailable, TTSEngine
 
-INSTALL_HINT = "Run: pip install 'murmur[piper]' && murmur models piper"
+INSTALL_HINT = 'From the Murmur folder, run: pip install -e ".[piper]", then: murmur models piper'
 
 
 def piper_command() -> list[str] | None:

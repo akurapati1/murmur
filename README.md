@@ -20,8 +20,10 @@ Scanned books (pages that are photos of text) are read with OCR if [Tesseract](h
 You need Python 3.10+ and [ffmpeg](https://ffmpeg.org/download.html).
 
 ```bash
-git clone <your-repo-url> murmur && cd murmur
-python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+git clone <your-repo-url> murmur
+cd murmur
+python -m venv .venv
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -e ".[kokoro]"
 
 murmur models kokoro --small     # one-time download, about 120 MB

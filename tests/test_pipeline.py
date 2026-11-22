@@ -276,4 +276,4 @@ def test_missing_cloning_engine_gives_clear_instructions(store, settings, novel,
     real = dataclasses.replace(settings, tts_engine="auto")
     job = run(store, real, new_job(store, real, novel, engine=None, voice=voice.id))
     assert job["status"] == "failed"
-    assert "voice-cloning engine" in job["error"] and "murmur[clone]" in job["error"]
+    assert "voice-cloning engine" in job["error"] and 'pip install -e ".[clone]"' in job["error"]

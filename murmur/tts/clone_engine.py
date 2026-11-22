@@ -3,9 +3,9 @@
 Two open-source engines are supported, both optional and loaded lazily (they pull in PyTorch):
 
 * **Chatterbox** (MIT licence, Resemble AI): the default. Expressive, with an adjustable "exaggeration"
-  that the director's per-sentence intensity maps onto.  ``pip install 'murmur[clone]'``
+  that the director's per-sentence intensity maps onto.  ``pip install -e ".[clone]"``
 * **Coqui XTTS-v2** (Coqui Public Model Licence: *non-commercial use only*).
-  ``pip install 'murmur[xtts]'`` and ``export COQUI_TOS_AGREED=1`` after reading the licence.
+  ``pip install -e ".[xtts]"`` and set ``COQUI_TOS_AGREED=1`` after reading the licence.
 
 Cloning is far heavier than the built-in voices. A GPU (CUDA or Apple Silicon) is strongly
 recommended; on a plain CPU expect several times slower than real time.
@@ -21,8 +21,10 @@ import numpy as np
 
 from .base import EngineUnavailable, TTSEngine
 
-CHATTERBOX_HINT = "Run: pip install 'murmur[clone]'  (a GPU is strongly recommended)"
-XTTS_HINT = "Run: pip install 'murmur[xtts]' and set COQUI_TOS_AGREED=1 (non-commercial licence)"
+CHATTERBOX_HINT = 'From the Murmur folder, run: pip install -e ".[clone]"  (a GPU is strongly recommended)'
+XTTS_HINT = (
+    'From the Murmur folder, run: pip install -e ".[xtts]" and set COQUI_TOS_AGREED=1 (non-commercial licence)'
+)
 
 _load_lock = threading.Lock()
 
@@ -52,7 +54,7 @@ def pick_clone_engine(requested: str = "auto") -> str:
             return name
     raise EngineUnavailable(
         "Narrating in your own voice needs a voice-cloning engine, and none is installed yet. "
-        "The recommended one is free and open source: pip install 'murmur[clone]'. "
+        'The recommended one is free and open source. From the Murmur folder, run: pip install -e ".[clone]". '
         "A GPU makes it dramatically faster."
     )
 
